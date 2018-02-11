@@ -200,7 +200,7 @@ vals
 ## K/N = 10
 n_folds=10
 # Create the folds
-folds_i <- sample(rep(1:n_folds, length.out = nrow(data) ))
+folds_i <- sample(rep(1:n_folds, length.out = nrow(data) )) # vector from 1 to n-fold 
 # Create results
 model_results_cv <- list()
 
@@ -247,6 +247,7 @@ for (type in c("lev","log")) {
                                            mse_train = mse_train,mse_test = mse_test,BIC = BIC)
   }
 }
+## the only difference to previous case is the use of 10-fold CV
 
 ## Example for levels:
 vals_CV <- matrix(rep(NaN,3*8),nrow=3,ncol=8)
