@@ -1,0 +1,1130 @@
+---
+title: "Homework assignment 2"
+author: "Peter Paziczki"
+date: "2018 February 18"
+output:
+  pdf_document: default
+  html_document: default
+subtitle: 'Data Analysis 4: Prediction Analytics with Introduction to Machine Learning
+  2017/2018 Winter'
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+rm(list=ls())
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, echo = FALSE)
+```
+
+### 1. Preparation for prediction exercise
+
+#### 1.1 Loading the full London AirBnB dataset
+
+I am loading the `airbnb_london_workfile.csv` data set, it has more than 50,000 observations and 74 variables. Now I need to do proper data cleaning and preparation.
+
+```{r echo=FALSE}
+# loading necessary 
+library(data.table)
+library(ggplot2)
+#library(lattice)
+#library(caret)
+#library(glmnet)
+
+# Setting the path
+#path <- "/Users/User/Documents/R_projects/CEU-DA4/Seminar_1"
+#setwd(path)
+#getwd()
+
+# Loading the data
+data <- fread(file = "bisnode_all.csv" , stringsAsFactors = F )
+
+# Change Infinite values with NaNs
+for (j in 1:ncol(data) ) set(data, which(is.infinite(data[[j]])), j, NA)
+
+data[, usd_price_day := NULL]
+
+# Randomly choosing a borough
+# data <- data[neighbourhood_cleansed =="Hackney"]
+# Export the hackey data
+#fwrite(data,"airbnb_hackney_workfile.csv")
+```
+
+#### 1.2 Data praparation
+
+##### 1.2.1 Price
+
+The target of this exercise is to predict price, so first let's have a better understanding of price variable.
+
+```{r echo=FALSE}
+summary(data$price)
+# Create logs
+data[,ln_price:=log(price)] # check for zeros
+# Plot
+qplot(data$price, geom="histogram", binwidth=50)+theme_bw()
+qplot(data$ln_price, geom="histogram", binwidth=0.25)+theme_bw()
+# Remove extreme values from prices
+data <- data[!price>1000]
+```
+
+The mean and the median are far from each other, the histogram of price is skewed to the irght and there seem to be a few very large numbers. After taking the logarithm of price (`ln_price`) we got a normal like distribution, but dropping the observation with prices above would most likely yield a neater distribution.
+
+I dropped the observation with prices above 1,000 ad the histogram of price variable is still skewed to the right, but it is much neater, so do the m dropping the observations that have a higher price than 1,000. The histograms of `price` and `ln_price` variables look better now in a sense of being less skewed and are being closer to a normal like distribution, repsectively.
+
+```{r echo=FALSE}
+# Much neater histograms
+qplot(data$price, geom="histogram", binwidth=25, fill=I("lightblue"), col=I("white"))+theme_bw()
+#ggsave("F14_h_price.png")
+
+qplot(data$ln_price, geom="histogram", binwidth=0.15, fill=I("lightblue"), col=I("white"))+theme_bw()
+#ggsave("F14_h_lnprice.png")
+## it is closer to normal
+```
+
+##### 1.2.2 Number of people accomodated
+
+Let's have some summary statistics about mean prices by number of people accomodated.
+
+```{r echo=FALSE}
+################################################
+# look at some cnts. key vars, functional form #
+################################################
+
+## n_accommodates: look at distribution
+data[,.(mean_price = mean(price) ,  min_price= min(price) ,max_price = max(price),  n=.N ),by = n_accommodates]
+
+ggplot(data = data, aes(x=n_accommodates, y=price)) +
+  geom_point(size=2, colour="orange")+
+  ylim(0,800)+
+  xlim(0,15)+
+  labs(x="Number of people accomodated",y="Price")+
+  geom_smooth(method="lm", colour="navy", se=FALSE)+
+  theme_bw()
+#ggsave("F14_s_n_accommodates.png")
+## the higher number of people accomodated, the higher the price
+```
+
+There seems to be a general positive relation between `price` and `n_accommodates` variables, the more guest accomodated, the higher the price is on average. Let's run a linear regression on `ln_price` and on `n_accommodates` or `ln_accommodates`.
+
+```{r echo=FALSE}
+# Squares and further values to create
+data[, `:=`(n_accommodates2=n_accommodates**2, ln_accommodates=log(n_accommodates) ,
+            ln_accommodates2=log(n_accommodates)**2) ]
+# Regression 1: ln price and num of accomodates and squares
+lm(ln_price ~ n_accommodates + n_accommodates2, data=data) # some kind of negative effect as number of accomodates increases
+## let's see what would happen if we dropped the square ...
+
+# Regression 2: ln price and log num of accomodates
+lm(ln_price ~ ln_accommodates , data=data)
+# Regression 3: ln price and num of accomodates
+lm(ln_price ~ n_accommodates, data=data)
+```
+
+Let's run a loess regression on `price` and on `n_accommodates`.
+
+```{r echo=FALSE}
+# lowess with scatterplot: price is lower than 800, num of acc.
+ggplot(data = data[data$price<=800], aes(x=n_accommodates, y=price)) +
+  geom_point(size=1.5, colour="orange", shape=4) +
+  ylim(0,800)+
+  xlim(0,18)+
+  geom_smooth(method="loess", colour="darkgreen", se=F)+
+  labs(x="Number of people accomodated",y="Daily price (USD)")+
+  theme_bw()
+#ggsave("F14_l_n_accommodates.png")
+## there is some non-linearities
+```
+
+There is some non-linearity, let's run a loess regression on `ln_price` and on `ln_accommodates`.
+
+```{r echo=FALSE}
+# lowess with scatterplot: log-price is lower than 800, log-num of acc.
+ggplot(data = data[data$price<=800], aes(x=ln_accommodates, y=ln_price)) +
+  geom_point(size=1.5, colour="orange", shape=4) +
+  ylim(1,7)+
+  xlim(0,3)+
+  geom_smooth(method="loess", colour="darkgreen", se=F)+
+  labs(x="Log number of people accomodated",y="Log daily price")+
+  theme_bw()
+#ggsave("F14_l_ln_accommodates.png")
+# maybe best is to have log people -> better linear approximation, but different interpretation!!
+## maybe we can say the using linears will be okay
+## what are the warnings? when working with logs that are close to zero, there could be problems, but now everything is okay ...
+```
+
+This regression is much closer to being linear, it is better to work with, we just need to be careful when interpreting.
+
+##### 1.2.3 Beds
+
+Let's have some summary statistics about mean prices by number of beds and take the logarithm of the number of beds.
+
+```{r echo=FALSE}
+## Beds
+data[,.(mean_price = mean(price) ,  min_price= min(price) ,max_price = max(price),  n=.N ),by = n_beds]
+# maybe best is to have log beds
+data[,ln_beds:=log(n_beds)] # taking the log to have better interpretation
+```
+
+##### 1.2.4 Bathroom
+
+Let's have a quick look at the histogram of number of bathrooms.
+
+```{r echo=FALSE}
+## bathrooms
+qplot(data$n_bathrooms, geom="histogram", binwidth=0.5, fill=I("lightblue"), col=I("white"))+theme_bw()
+#ggsave("F14_h_n_bathrooms.png")
+## there is a large number of accommodations with one bathroom
+```
+
+As in the majority of cases there is only one bathroom per accommodation, it would be wise to group the bathrooms into categorical variables based on their number per accommodation:
+
+```{r echo=FALSE}
+# Pool accomodations with 0,1,2,10 bathrooms
+data[,f_bathroom:=cut(n_bathrooms, c(0,1,2,10), labels=c(0,1,2), right = F)]
+data[,.(mean_price = mean(price) ,  n=.N ),by = f_bathroom]
+## creating factors to group accommodations based on the number of bathrooms
+```
+
+There are a few NAs among the observations, but it is a negligible fraction of our data. In approx. 80% of the cases there is one bathroom in the accommodation.
+
+##### 1.2.5 Reviews
+
+Number of reviews can be a good predictor, let's have a look at the distribution:
+
+```{r echo=FALSE}
+## Number of reviews
+qplot(data[data$n_number_of_reviews<100]$n_number_of_reviews,
+      geom="histogram", binwidth=5, fill=I("lightblue"), col=I("white"))+ 
+  labs(x="Number of reviews")+
+  theme_bw()
+# ggsave("F14_h_n_number_of_reviews.png")
+```
+
+It is highly skewed to the right, let's have the logarithm of it and check the distribution again:
+
+```{r}
+# number of reviews: use logs as well
+data[,ln_number_of_reviews:=log(n_number_of_reviews+1)]
+qplot(data$ln_number_of_reviews,
+      geom="histogram", binwidth=0.5, fill=I("lightblue"), col=I("white"))+ 
+  theme_bw()
+#ggsave("F14_h_ln_number_of_reviews.png")
+## it is still exponential ... but not that high
+```
+
+It still seems to be exponential, but is is alreay less skewed. It probably makes sense to group the `n_number_of_reviews` into groups (factor variable) with such zero review, 1 - 51 reviews or more.
+
+```{r echo=FALSE}
+# Pool num of reviews to 3 categories: none, 1-51 and >51
+data[,f_number_of_reviews:=cut(n_number_of_reviews, c(0,1,51,max(data$n_number_of_reviews)), labels=c(0,1,2), right = F)]
+data[,.(median_price = median(price) ,mean_price = mean(price) ,  n=.N ),by = f_number_of_reviews]
+## grouping / pooling the reviews ... they are factors already ... median and mean are close to each other
+```
+
+Let's see if there is any relation between `ln_price` and the above created groups or the `ln_number_of_reviews`, which is the logairthm of the number of reviews.
+
+```{r echo=FALSE}
+# Regression 1: log-price and number of reviews
+lm(ln_price ~ f_number_of_reviews, data=data) # might be a relevant variable ...
+# Regression 2: log-price and log number of reviews
+lm(ln_price ~ ln_number_of_reviews, data=data) # there seems to be a not so strong connection
+```
+
+The results of the first regression shows that there might be some relation between `ln_price` and `f_number_of_reviews`, not that strong but might be relevant. In case of `f_number_of_reviews` I did not observe a strong relation with `ln_price`.
+
+##### 1.2.6 Time since the first review
+
+```{r echo=FALSE}
+## Time since
+# Create variables, measuring the time since: squared, cubic, logs
+data[,`:=`(ln_days_since= log(n_days_since),ln_days_since2 = log(n_days_since)**2
+           ,ln_days_since3 = log(n_days_since)**3 , n_days_since2=n_days_since**2, n_days_since3=n_days_since**3)]
+# Check the effect
+ggplot(data = data[(data$price<=800) & (ln_days_since>2)], aes(x=ln_days_since , y=ln_price)) +
+  geom_point(size=1.5, colour="orange", shape=4) +
+  ylim(1,7)+
+  xlim(2,7)+
+  geom_smooth(method="loess", colour="darkgreen", se=F)+
+  labs(x="Log number of days since first review",y="Log daily price")+
+  theme_bw()
+#ggsave("F14_l_ln_days_ince.png")
+## there might be some pattern
+
+#-Inf values
+#lm(ln_price ~ ln_days_since + ln_days_since2 + ln_days_since3, data=data)
+```
+
+There might be some non-linear pattern in the data, we will use it as potential polinomial predictor.
+
+##### 1.2.7 Review score
+
+It can be meaningful and useful to not only look at the full population but subsamples too.
+
+```{r echo=FALSE}
+## review score effect
+ggplot(data = data[(data$price<=800) & (n_review_scores_rating>=60)], aes(x=n_review_scores_rating , y=ln_price)) +
+  geom_point(size=1.5, colour="orange", shape=4) +
+  ylim(1,7)+
+  xlim(60,100)+
+  geom_smooth(method="loess", colour="darkgreen", se=F)+
+  labs(x="Review score",y="Log daily price")+
+  theme_bw()
+#ggsave("F14_l_n_number_of_reviews.png")
+## it can be meaningful and useful to not only look at the full population but subsamples too
+
+# Create log of review scores
+data[,ln_review_scores_rating :=log(n_review_scores_rating )]
+# Regression 1) ln price - num of review scores
+lm(ln_price ~ n_review_scores_rating,data=data) 
+# Regression 2) ln price - log num of review scores
+lm(ln_price ~ ln_review_scores_rating,data=data) 
+#leave as is
+
+# Remove missing data, that has no score rating
+data <- data[!is.na(n_review_scores_rating)]
+```
+
+Having the log of review score seems to be good idea, we are going to use as a potential predictor.
+
+##### 1.2.8 Minimum nights
+
+Let's run a linear regression on log of price and minimum nights.
+
+```{r echo=FALSE}
+## minimum nights
+lm(ln_price ~ n_minimum_nights,data=data) # it is almost zero, let's pool the nights and see if it is more meaningful that way
+
+# Pool and categorize the number of minimum nights: 1,2,3, 3+
+data[,f_minimum_nights:=cut(n_minimum_nights, c(1,2,3,max(data$n_minimum_nights)), labels=c(1,2,3), right = F)]
+
+lm(ln_price ~ f_minimum_nights,data=data)
+## comparing to one night stay if minimum stay is two nights, then the percentage in price with one extra night is going to be larger by 24%
+```
+
+There seems to be a very weak relationship between `ln_price` and `n_minimum_nights`, but it seems to be a good ide to group nights.
+
+##### 1.2.9 Categorical variables
+
+These are the categorical variables we already have:
+
+```{r echo=FALSE}
+###########################
+## look at categoricals  ##
+###########################
+
+categoricals <- c("f_property_type", "f_room_type", "f_cancellation_policy", "f_bed_type") # defines already defined as factors
+
+for (var in categoricals) {
+  print(data[,.(mean_price = mean(price) ,  n=.N ),by = mget(var)])
+}
+
+#####################################
+
+# fwrite(data,"airbnb_hackney_workfile_adj.csv")
+
+```
+
+#### 1.3 Preparing model environment
+
+##### 1.3.1 Defining functions
+
+We needed to define function to compute means squarred error for simple and log models. In case of log models a correction term was also needed to consider.
+
+```{r echo=FALSE}
+################################
+## Some basic functions 2 use ##
+################################
+
+# Means Squared Error for log models
+mse_log <- function (pred, y,corr){
+  (mean((exp(y) - exp(pred) * exp(corr^2/2))^2, na.rm=T )) # corr is variance here
+} # MSE and log correction merged into one function
+
+# Means Squared Error for simple models (level model)
+mse_lev <- function(pred,y)
+{
+  (mean((pred-y)^2, na.rm=T))
+}
+
+# RMSE for log models
+#rmse_log <- function (pred, y,corr){
+#  (sqrt(mean((exp(y) - exp(pred) * exp(corr^2/2))^2, na.rm=T ))) # corr is variance here
+#} # RMSE and log correction merged into one function
+
+# RMSE for lev models
+#rmse_lev <- function(pred,y)
+#{
+#  (sqrt(mean((pred-y)^2), na.rm=T))
+#}
+```
+
+```{r echo=FALSE}
+#############
+# Load data #
+#############
+
+# Set path
+#path <- "/Users/User/Documents/R_projects/CEU-DA4/Seminar_1"
+#setwd(path)
+#getwd()
+
+# Used area
+#area <- "hackney"
+#data <- fread(paste0("airbnb_",area,"_workfile_adj.csv"),stringsAsFactors = T)
+# Remove missing data, that has no score rating
+data <- data[!is.na(n_review_scores_rating)]
+# Change Infinite values with NaNs
+for (j in 1:ncol(data) ) set(data, which(is.infinite(data[[j]])), j, NA)
+```
+
+##### 1.3.2 Defining models
+
+The task is to create four different models, with the fourth being the most complex. I am starting with a very simple level model with only one predictor, `n_accommodates`, just to have a good benchmark model. Then I am improving that prediction in a sense of having much mode predictors but still predicting price in level. Then I am switching to predict log price with one simple predictor `ln_accommodates`, just to have a good benchmark for the log model. The fourth model, as requested, is the most complex one with the most predictors.
+
+```{r echo=FALSE}
+#####################
+# Setting up models #
+#####################
+
+# Basic Variables
+basic_lev  <- c("n_accommodates", "n_beds", "f_property_type", "f_room_type", "n_days_since") 
+basic_log <- c("ln_accommodates", "ln_beds", "f_property_type", "f_room_type","ln_days_since") 
+
+# Factorized variables
+basic_add <- c("f_bathroom","f_cancellation_policy","f_bed_type") 
+reviews <- c("f_number_of_reviews","n_review_scores_rating") 
+# Higher orders
+poly_lev <- c("n_accommodates2", "n_days_since2", "n_days_since2")
+poly_log <- c("ln_accommodates2","ln_days_since2","ln_days_since3")
+
+#not use p_host_response_rate due to missing obs
+
+# Dummy variables: Extras -> collect all options and create dummies
+amenities <-  names(data)[grep("^d_.*",names(data))] 
+
+# Factor values
+X1  <- c("f_room_type*f_property_type",  "f_number_of_reviews*f_property_type") 
+# Interactions of factors and dummies
+X2  <- c("d_airconditioning*f_property_type", "d_cats*f_property_type", "d_dogs*f_property_type") 
+# Other interactions
+X3  <- c(paste0("(f_property_type + f_room_type + f_cancellation_policy + f_bed_type) * (",
+                paste(names(data)[19:67],collapse=" + "),")"))
+
+# Create models in levels models: 1-8
+modellev1 <- " ~ n_accommodates"
+#modellev2 <- paste0(" ~ ",paste(basic_lev,collapse = " + "))
+modellev2 <- paste0(" ~ ",paste(c(basic_lev, basic_add,reviews),collapse = " + ")) 
+#modellev4 <- paste0(" ~ ",paste(c(basic_lev,basic_add,reviews,poly_lev),collapse = " + "))
+#modellev5 <- paste0(" ~ ",paste(c(basic_lev,basic_add,reviews,poly_lev,X1),collapse = " + "))
+#modellev6 <- paste0(" ~ ",paste(c(basic_lev,basic_add,reviews,poly_lev,X1,X2),collapse = " + "))
+#modellev7 <- paste0(" ~ ",paste(c(basic_lev,basic_add,reviews,poly_lev,X1,X2,amenities),collapse = " + "))
+#modellev8 <- paste0(" ~ ",paste(c(basic_lev,basic_add,reviews,poly_lev,X1,X2,amenities,X3),collapse = " + "))
+
+# Create models in logs, models: 1-8
+modellog1 <- " ~ ln_accommodates"
+#modellog2 <- paste0(" ~ ",paste(basic_log,collapse = " + "))
+#modellog3 <- paste0(" ~ ",paste(c(basic_log, basic_add),collapse = " + ")) 
+#modellog4 <- paste0(" ~ ",paste(c(basic_log,basic_add,reviews,poly_log),collapse = " + "))
+#modellog5 <- paste0(" ~ ",paste(c(basic_log,basic_add,reviews,poly_log,X1),collapse = " + "))
+#modellog6 <- paste0(" ~ ",paste(c(basic_log,basic_add,reviews,poly_log,X1,X2),collapse = " + "))
+#modellog7 <- paste0(" ~ ",paste(c(basic_log,basic_add,reviews,poly_log,X1,X2,amenities),collapse = " + "))
+modellog2 <- paste0(" ~ ",paste(c(basic_log,basic_add,reviews,poly_log,X1,X2,amenities,X3),collapse = " + "))
+```
+
+##### 1.3.3 Creating training and test data sets
+
+I am dividing the data into training (90%) and test (10%) sets.
+
+```{r echo=FALSE}
+#################################
+# Create test and train samples #
+#################################
+
+# create test and train samples (90% of observations in train sample)
+smp_size <- floor(0.9 * nrow(data))
+
+# Set the random number generator: It will make results reproducable
+set.seed(20180122)
+
+# create ids: 
+# 1) seq_len: generate regular sequences
+# 2) sample: select random rows from a table
+train_ids <- sample(seq_len(nrow(data)), size = smp_size)
+
+# create a new variable for train/test sample
+data$train <- 0
+data$train[train_ids] <- 1
+# Create train and test sample variables
+data_train <- data[train==1,]
+data_test <- data[train==0,]
+
+# loading data into other variables for further purposes
+data_london <- data
+data_train_london <- data_train
+data_test_london <- data_test
+```
+
+### 2. Prediction exercise for London
+
+#### 2.1 Running linear models without cross-validation
+
+Please find a table below summarizing the MSE, RMSE and BIC scores for the level and log models I have previously defined.
+
+```{r echo=FALSE}
+####################################
+#         Compare models           #
+####################################
+
+# Create list to save model results
+model_results <- list()
+
+# For each level and logs
+for (type in c("lev","log")) {
+  # for each model
+  for (i in ( 1 : 2 ) ) {
+    
+    # Get the proper model names
+    model_name <- paste0("model",type,i)
+    # Get the proper target variable
+    yvar <- ifelse(type=="lev","price","ln_price")
+    # Get the depedent variables
+    xvars <- eval(parse(text = model_name))
+    # Create the appropriate formula
+    formula <- formula(paste0(yvar,xvars))
+    # Estimate on the training data
+    model <- lm(formula,data = data_train)
+    # Predict on the training sample (in-sample)
+    prediction_train <- predict(model, newdata = data_train)
+    # Predict on the testing sample (out-of--sample)
+    prediction_test <- predict(model, newdata = data_test)
+    
+    # Estimate the appropriate Criteria
+    if (type=="lev") {
+      mse_train <- mse_lev(prediction_train, data_train[,mget(yvar)])
+      rmse_train <- mse_lev(prediction_train, data_train[,mget(yvar)])**(1/2)
+      mse_test <- mse_lev(prediction_test, data_test[,mget(yvar)])
+      rmse_test <- mse_lev(prediction_test, data_test[,mget(yvar)])**(1/2)
+    } else {
+      rmselog <- mse_lev(prediction_train, data_train[,mget(yvar)])**(1/2)
+      mse_train <- mse_log(prediction_train, data_train[,mget(yvar)],rmselog)
+      rmse_train <- mse_log(prediction_train, data_train[,mget(yvar)],rmselog)**(1/2)
+      mse_test <- mse_log(prediction_test, data_test[,mget(yvar)],rmselog)
+      rmse_test <- mse_log(prediction_test, data_test[,mget(yvar)],rmselog)**(1/2)
+    }
+    # Bayesian Criteria
+    BIC <- BIC(model) # it does not use the concept of training and test sample, it is just a feature value of this model,
+    ## it penalizes the number of variables and observations
+    # Save into model results
+    model_results[[model_name]] <- list(yvar=yvar,xvars=xvars,formula=formula,model=model,
+                                        prediction_train = prediction_train,prediction_test = prediction_test,
+                                        mse_train = mse_train,rmse_train=rmse_train,mse_test = mse_test,rmse_test=rmse_test,BIC = BIC)
+  }
+}
+## warning - rank-deficient: there are some dummy variables that are linearly dependent from each other, but it is gonna be a big issue now
+
+## Example for levels:
+vals <- matrix(rep(NaN,5*4),nrow=5,ncol=4)
+rownames(vals) <- c("mse_train", "rmse_train", "mse_test","rmse_test", "BIC")
+colnames(vals) <- c("modellev1", "modellev2", "modellog1", "modellog2")
+for ( modelNum in 1 : 4 ){
+  for ( crit in c("mse_train","rmse_train","mse_test","rmse_test","BIC") ){
+    if ( modelNum == 1 ) dt <- model_results$modellev1
+    if ( modelNum == 2 ) dt <- model_results$modellev2
+    if ( modelNum == 3 ) dt <- model_results$modellog1
+    if ( modelNum == 4 ) dt <- model_results$modellog2
+    #if ( modelNum == 5 ) dt <- model_results$modellev5
+    #if ( modelNum == 6 ) dt <- model_results$modellev6
+    #if ( modelNum == 7 ) dt <- model_results$modellev7
+    #if ( modelNum == 8 ) dt <- model_results$modellev8
+    if ( crit == "mse_train" ) i <- 1 
+    vals[i,modelNum] <- dt$mse_train
+    if ( crit == "rmse_train" ) i <- 2 
+    vals[i,modelNum] <- dt$rmse_train
+    if ( crit == "mse_test" ) i <- 3
+    vals[i,modelNum] <- dt$mse_test
+    if ( crit == "rmse_test" ) i <- 4
+    vals[i,modelNum] <- dt$rmse_test
+    if ( crit == "BIC" ) i <- 5
+    vals[i,modelNum] <- dt$BIC
+  }
+}
+
+vals
+```
+
+#### 2.2 Running log models with 10-fold cross-validation
+
+Please find a table below summarizing the MSE, RMSE and BIC scores for the level and log models I have previously defined.
+
+```{r echo=FALSE}
+##############################
+#      cross validation      #
+##############################
+
+## K/N = 10
+n_folds=10
+# Create the folds
+folds_i <- sample(rep(1:n_folds, length.out = nrow(data) )) # vector from 1 to n-fold 
+# Create results
+model_results_cv <- list()
+
+for (type in c("lev","log")) {
+  for (i in (1:2)){
+    model_name <- paste0("model",type,i)
+    
+    yvar <- ifelse(type=="lev","price","ln_price")
+    xvars <- eval(parse(text = model_name))
+    formula <- formula(paste0(yvar,xvars))
+    
+    # Initialize values
+    rmse_train <- c()
+    rmse_train<- c()
+    BIC<- c()
+    
+    # Do the k-fold estimation
+    for (k in 1:n_folds) {
+      test_i <- which(folds_i == k)
+      # Train sample: all except test_i
+      data_train <- data[-test_i, ]
+      # Test sample
+      data_test <- data[test_i, ]
+      # Estimation and prediction
+      model <- lm(formula,data = data_train)
+      prediction_train <- predict(model, newdata = data_train)
+      prediction_test <- predict(model, newdata = data_test)
+      
+      # Criteria evaluation
+      if (type=="lev") {
+        mse_train <- mse_lev(prediction_train, data_train[,mget(yvar)])
+        rmse_train <- mse_lev(prediction_train, data_train[,mget(yvar)])**(1/2)
+        mse_test <- mse_lev(prediction_test, data_test[,mget(yvar)])
+        rmse_test <- mse_lev(prediction_test, data_test[,mget(yvar)])**(1/2)
+      } else {
+        rmselog <- mse_lev(prediction_train, data_train[,mget(yvar)])**(1/2)
+        mse_train <- mse_log(prediction_train, data_train[,mget(yvar)],rmselog)
+        rmse_train <- mse_log(prediction_train, data_train[,mget(yvar)],rmselog)**(1/2)
+        mse_test <- mse_log(prediction_test, data_test[,mget(yvar)],rmselog)
+        rmse_test <- mse_log(prediction_test, data_test[,mget(yvar)],rmselog)**(1/2)
+      }
+      
+      BIC <- BIC(model)
+    }
+    
+    model_results_cv[[model_name]] <- list(yvar=yvar,xvars=xvars,formula=formula,model=model,
+                                           prediction_train = prediction_train,prediction_test = prediction_test,
+                                           mse_train = mse_train,rmse_train = rmse_train,mse_test = mse_test,rmse_test=rmse_test,BIC = BIC)
+  }
+}
+## the only difference to previous case is the use of 10-fold CV
+
+## Example for levels:
+vals_CV <- matrix(rep(NaN,5*4),nrow=5,ncol=4)
+rownames(vals_CV) <- c("mse_train", "rmse_train", "mse_test","rmse_test", "BIC")
+colnames(vals_CV) <- c("modellev1", "modellev2", "modellog1", "modellog2")
+for ( modelNum in 1 : 4 ){
+  for ( crit in c("mse_train","rmse_train","mse_test","rmse_test","BIC") ){
+    if ( modelNum == 1 ) dt <- model_results_cv$modellev1
+    if ( modelNum == 2 ) dt <- model_results_cv$modellev2
+    if ( modelNum == 3 ) dt <- model_results_cv$modellog1
+    if ( modelNum == 4 ) dt <- model_results_cv$modellog2
+    #if ( modelNum == 5 ) dt <- model_results_cv$modellev5
+    #if ( modelNum == 6 ) dt <- model_results_cv$modellev6
+    #if ( modelNum == 7 ) dt <- model_results_cv$modellev7
+    #if ( modelNum == 8 ) dt <- model_results_cv$modellev8
+    if ( crit == "mse_train" ) i <- 1 
+    vals_CV[i,modelNum] <- mean( dt$mse_train )
+    if ( crit == "rmse_train" ) i <- 2 
+    vals_CV[i,modelNum] <- mean( dt$rmse_train )
+    if ( crit == "mse_test" ) i <- 3
+    vals_CV[i,modelNum] <- mean( dt$mse_test )
+    if ( crit == "rmse_test" ) i <- 4
+    vals_CV[i,modelNum] <- mean( dt$rmse_test )
+    if ( crit == "BIC" ) i <- 5
+    vals_CV[i,modelNum] <- mean( dt$BIC )
+  }
+}
+
+vals_CV
+```
+
+#### 2.3 Running Lasso
+
+The task is to run Lasso on the most complex model. Lasso is a penalized regression model, it does variable selecton in order to minimize RMSE and uses a penalty term to penalize model size.
+
+```{r echo=FALSE}
+#################################
+#           LASSO               #
+#################################
+
+# Package
+#install.packages("glmnet")
+library(glmnet)
+
+## LASSO Model 1) for ln price:
+# Convert training data to matrix format, use the broadest data set
+formula <- formula(paste0("ln_price",modellog2))
+# Create matrix
+x <- model.matrix(formula,data)
+# Call of LASSO function
+# alpha = 1 gives lasso penalty
+# find the best lambda from our list via cross-validation
+lasso1 <- cv.glmnet( x , data[ ( match( rownames( x ) ,rownames( data ) ) ) , ln_price ], alpha = 1)
+# Optimal lambda parameter
+bestlam1 <- lasso1$lambda.min
+# Prediction
+lasso1.pred <- predict(lasso1, newx = x, s=bestlam1)
+# MSE value
+corr <- mse_lev(lasso1.pred,data[(match(rownames(x),rownames(data))),ln_price])
+lasso1.mse <- mse_log(lasso1.pred,data[(match(rownames(x),rownames(data))),ln_price],corr)
+lasso1.rmse <- mse_log(lasso1.pred,data[(match(rownames(x),rownames(data))),ln_price],corr)**(1/2)
+
+## LASSO Model 2) for price levels:
+#formula <- formula(paste0("price",modellev8))
+#x <- model.matrix(formula,data)
+#lasso2 <- cv.glmnet(x, data[(match(rownames(x),rownames(data))),price], alpha = 1)
+#bestlam2 <- lasso2$lambda.min
+#lasso2.pred <- predict(lasso2, newx = x, s=bestlam2)
+#lasso2.mse <- mse_lev(lasso2.pred,data[(match(rownames(x),rownames(data))),price])
+```
+
+The optimal lambda for alpha = 1 is `r bestlam1` and the RMSE is `r lasso1.rmse`.
+
+#### 2.4 Running a `pcr` model (Extra task)
+
+I am trying to improve the simple linear model by using PCA for dimensionality reduction. I am centering and scaling variables and using `pcr` to conduct a search for the optimal number of principal components.
+
+`pcr` is also a linear regression but with principal components as explanatory variables and its hyperparameter is the number of principal components to be used. Now I am doing a `pcr` with a 10-fold cross-validation with a sequence of hyperparameters 1 to 20.
+
+```{r echo=FALSE}
+tune_grid <- data.frame(ncomp = 5:10)
+set.seed(1234)
+pcr_fit <- train(price ~ . -ln_price, 
+                data = data_train, 
+                method = "pcr",
+                na.action  = na.pass,
+                trControl = trainControl(method = "cv", number = 10),
+                tuneGrid = tune_grid,
+                preProcess = c("center", "scale")
+                )
+pcr_fit
+```
+
+The results show that having the most principal components does not yield a model with the lowest RMSE. In this case having 19 principal components provided the lowest RMSE.
+
+#### 2.5 Evaluating `pcr` model on test set (Extra task)
+
+After running `pcr` on the test set this is the RMSE I got:
+
+```{r echo=FALSE}
+test_prediction <- predict.train(pcr_fit, 
+                                        newdata = data_test)
+RMSE <- function(x, true_x) sqrt(mean((x - true_x)^2))
+RMSE(test_prediction, data_test[["price"]])
+```
+
+### 3. Prediction exercise for Westminster borough in London
+
+```{r echo=FALSE}
+large_boroughs <- data_london[, .N, by = "f_neighbourhood_cleansed"][N > 999][["f_neighbourhood_cleansed"]]
+set.seed(20180210)
+borough <- sample(large_boroughs, 1)
+data <- data[neighbourhood_cleansed == borough]
+```
+
+I have created a small routine to randomy pick a borough that has at leasr a thousand observations. The routine picked `r borough`.
+
+#### 3.1 Creating training and test data sets
+
+I am dividing the data into training (90%) and test (10%) sets, as I did previously.
+
+```{r echo=FALSE}
+#################################
+# Create test and train samples #
+#################################
+
+# create test and train samples (90% of observations in train sample)
+smp_size <- floor(0.9 * nrow(data))
+
+# Set the random number generator: It will make results reproducable
+set.seed(20180122)
+
+# create ids: 
+# 1) seq_len: generate regular sequences
+# 2) sample: select random rows from a table
+train_ids <- sample(seq_len(nrow(data)), size = smp_size)
+
+# create a new variable for train/test sample
+data$train <- 0
+data$train[train_ids] <- 1
+# Create train and test sample variables
+data_train <- data[train==1,]
+data_test <- data[train==0,]
+```
+
+#### 3.2 Running linear models without CV
+
+Please find a table below summarizing the MSE, RMSE and BIC scores for the level models I have previously defined.
+
+```{r echo=FALSE}
+####################################
+#         Compare models           #
+####################################
+
+# Create list to save model results
+model_results <- list()
+
+# For each level and logs
+for (type in c("lev","log")) {
+  # for each model
+  for (i in ( 1 : 2 ) ) {
+    
+    # Get the proper model names
+    model_name <- paste0("model",type,i)
+    # Get the proper target variable
+    yvar <- ifelse(type=="lev","price","ln_price")
+    # Get the depedent variables
+    xvars <- eval(parse(text = model_name))
+    # Create the appropriate formula
+    formula <- formula(paste0(yvar,xvars))
+    # Estimate on the training data
+    model <- lm(formula,data = data_train)
+    # Predict on the training sample (in-sample)
+    prediction_train <- predict(model, newdata = data_train)
+    # Predict on the testing sample (out-of--sample)
+    prediction_test <- predict(model, newdata = data_test)
+    
+    # Estimate the appropriate Criteria
+    if (type=="lev") {
+      mse_train <- mse_lev(prediction_train, data_train[,mget(yvar)])
+      rmse_train <- mse_lev(prediction_train, data_train[,mget(yvar)])**(1/2)
+      mse_test <- mse_lev(prediction_test, data_test[,mget(yvar)])
+      rmse_test <- mse_lev(prediction_test, data_test[,mget(yvar)])**(1/2)
+    } else {
+      rmselog <- mse_lev(prediction_train, data_train[,mget(yvar)])**(1/2)
+      mse_train <- mse_log(prediction_train, data_train[,mget(yvar)],rmselog)
+      rmse_train <- mse_log(prediction_train, data_train[,mget(yvar)],rmselog)**(1/2)
+      mse_test <- mse_log(prediction_test, data_test[,mget(yvar)],rmselog)
+      rmse_test <- mse_log(prediction_test, data_test[,mget(yvar)],rmselog)**(1/2)
+    }
+    # Bayesian Criteria
+    BIC <- BIC(model) # it does not use the concept of training and test sample, it is just a feature value of this model,
+    ## it penalizes the number of variables and observations
+    # Save into model results
+    model_results[[model_name]] <- list(yvar=yvar,xvars=xvars,formula=formula,model=model,
+                                        prediction_train = prediction_train,prediction_test = prediction_test,
+                                        mse_train = mse_train,rmse_train=rmse_train,mse_test = mse_test,rmse_test=rmse_test,BIC = BIC)
+  }
+}
+## warning - rank-deficient: there are some dummy variables that are linearly dependent from each other, but it is gonna be a big issue now
+
+## Example for levels:
+vals <- matrix(rep(NaN,5*4),nrow=5,ncol=4)
+rownames(vals) <- c("mse_train", "rmse_train", "mse_test","rmse_test", "BIC")
+colnames(vals) <- c("modellev1", "modellev2", "modellog1", "modellog2")
+for ( modelNum in 1 : 4 ){
+  for ( crit in c("mse_train","rmse_train","mse_test","rmse_test","BIC") ){
+    if ( modelNum == 1 ) dt <- model_results$modellev1
+    if ( modelNum == 2 ) dt <- model_results$modellev2
+    if ( modelNum == 3 ) dt <- model_results$modellog1
+    if ( modelNum == 4 ) dt <- model_results$modellog2
+    #if ( modelNum == 5 ) dt <- model_results$modellev5
+    #if ( modelNum == 6 ) dt <- model_results$modellev6
+    #if ( modelNum == 7 ) dt <- model_results$modellev7
+    #if ( modelNum == 8 ) dt <- model_results$modellev8
+    if ( crit == "mse_train" ) i <- 1 
+    vals[i,modelNum] <- dt$mse_train
+    if ( crit == "rmse_train" ) i <- 2 
+    vals[i,modelNum] <- dt$rmse_train
+    if ( crit == "mse_test" ) i <- 3
+    vals[i,modelNum] <- dt$mse_test
+    if ( crit == "rmse_test" ) i <- 4
+    vals[i,modelNum] <- dt$rmse_test
+    if ( crit == "BIC" ) i <- 5
+    vals[i,modelNum] <- dt$BIC
+  }
+}
+
+vals
+```
+
+#### 3.3 Running log models 10-fold CV
+
+Please find a table below summarizing the MSE, RMSE and BIC scores for the level models I have previously defined.
+
+```{r echo=FALSE}
+##############################
+#      cross validation      #
+##############################
+
+## K/N = 10
+n_folds=10
+# Create the folds
+folds_i <- sample(rep(1:n_folds, length.out = nrow(data) )) # vector from 1 to n-fold 
+# Create results
+model_results_cv <- list()
+
+for (type in c("lev","log")) {
+  for (i in (1:2)){
+    model_name <- paste0("model",type,i)
+    
+    yvar <- ifelse(type=="lev","price","ln_price")
+    xvars <- eval(parse(text = model_name))
+    formula <- formula(paste0(yvar,xvars))
+    
+    # Initialize values
+    rmse_train <- c()
+    rmse_train<- c()
+    BIC<- c()
+    
+    # Do the k-fold estimation
+    for (k in 1:n_folds) {
+      test_i <- which(folds_i == k)
+      # Train sample: all except test_i
+      data_train <- data[-test_i, ]
+      # Test sample
+      data_test <- data[test_i, ]
+      # Estimation and prediction
+      model <- lm(formula,data = data_train)
+      prediction_train <- predict(model, newdata = data_train)
+      prediction_test <- predict(model, newdata = data_test)
+      
+      # Criteria evaluation
+      if (type=="lev") {
+        mse_train <- mse_lev(prediction_train, data_train[,mget(yvar)])
+        rmse_train <- mse_lev(prediction_train, data_train[,mget(yvar)])**(1/2)
+        mse_test <- mse_lev(prediction_test, data_test[,mget(yvar)])
+        rmse_test <- mse_lev(prediction_test, data_test[,mget(yvar)])**(1/2)
+      } else {
+        rmselog <- mse_lev(prediction_train, data_train[,mget(yvar)])**(1/2)
+        mse_train <- mse_log(prediction_train, data_train[,mget(yvar)],rmselog)
+        rmse_train <- mse_log(prediction_train, data_train[,mget(yvar)],rmselog)**(1/2)
+        mse_test <- mse_log(prediction_test, data_test[,mget(yvar)],rmselog)
+        rmse_test <- mse_log(prediction_test, data_test[,mget(yvar)],rmselog)**(1/2)
+      }
+      
+      BIC <- BIC(model)
+    }
+    
+    model_results_cv[[model_name]] <- list(yvar=yvar,xvars=xvars,formula=formula,model=model,
+                                           prediction_train = prediction_train,prediction_test = prediction_test,
+                                           mse_train = mse_train,rmse_train = rmse_train,mse_test = mse_test,rmse_test=rmse_test,BIC = BIC)
+  }
+}
+## the only difference to previous case is the use of 10-fold CV
+
+## Example for levels:
+vals_CV <- matrix(rep(NaN,5*4),nrow=5,ncol=4)
+rownames(vals_CV) <- c("mse_train", "rmse_train", "mse_test","rmse_test", "BIC")
+colnames(vals_CV) <- c("modellev1", "modellev2", "modellog1", "modellog2")
+for ( modelNum in 1 : 4 ){
+  for ( crit in c("mse_train","rmse_train","mse_test","rmse_test","BIC") ){
+    if ( modelNum == 1 ) dt <- model_results_cv$modellev1
+    if ( modelNum == 2 ) dt <- model_results_cv$modellev2
+    if ( modelNum == 3 ) dt <- model_results_cv$modellog1
+    if ( modelNum == 4 ) dt <- model_results_cv$modellog2
+    #if ( modelNum == 5 ) dt <- model_results_cv$modellev5
+    #if ( modelNum == 6 ) dt <- model_results_cv$modellev6
+    #if ( modelNum == 7 ) dt <- model_results_cv$modellev7
+    #if ( modelNum == 8 ) dt <- model_results_cv$modellev8
+    if ( crit == "mse_train" ) i <- 1 
+    vals_CV[i,modelNum] <- mean( dt$mse_train )
+    if ( crit == "rmse_train" ) i <- 2 
+    vals_CV[i,modelNum] <- mean( dt$rmse_train )
+    if ( crit == "mse_test" ) i <- 3
+    vals_CV[i,modelNum] <- mean( dt$mse_test )
+    if ( crit == "rmse_test" ) i <- 4
+    vals_CV[i,modelNum] <- mean( dt$rmse_test )
+    if ( crit == "BIC" ) i <- 5
+    vals_CV[i,modelNum] <- mean( dt$BIC )
+  }
+}
+
+vals_CV
+```
+
+#### 3.4 Running Lasso
+
+The task is to run Lasso on the most complex model as I did with London.
+
+```{r echo=FALSE}
+#################################
+#           LASSO               #
+#################################
+
+# Package
+#install.packages("glmnet")
+library(glmnet)
+
+## LASSO Model 1) for ln price:
+# Convert training data to matrix format, use the broadest data set
+formula <- formula(paste0("ln_price",modellog2))
+# Create matrix
+x <- model.matrix(formula,data)
+# Call of LASSO function
+# alpha = 1 gives lasso penalty
+# find the best lambda from our list via cross-validation
+lasso2 <- cv.glmnet( x , data[ ( match( rownames( x ) ,rownames( data ) ) ) , ln_price ], alpha = 1)
+# Optimal lambda parameter
+bestlam2 <- lasso2$lambda.min
+# Prediction
+lasso2.pred <- predict(lasso2, newx = x, s=bestlam2)
+# MSE value
+corr <- mse_lev(lasso2.pred,data[(match(rownames(x),rownames(data))),ln_price])
+lasso2.mse <- mse_log(lasso2.pred,data[(match(rownames(x),rownames(data))),ln_price],corr)
+lasso2.rmse <- mse_log(lasso2.pred,data[(match(rownames(x),rownames(data))),ln_price],corr)**(1/2)
+
+## LASSO Model 2) for price levels:
+#formula <- formula(paste0("price",modellev8))
+#x <- model.matrix(formula,data)
+#lasso2 <- cv.glmnet(x, data[(match(rownames(x),rownames(data))),price], alpha = 1)
+#bestlam2 <- lasso2$lambda.min
+#lasso2.pred <- predict(lasso2, newx = x, s=bestlam2)
+#lasso2.mse <- mse_lev(lasso2.pred,data[(match(rownames(x),rownames(data))),price])
+```
+
+The optimal lambda for alpha = 1 is `r bestlam2` and the RMSE is `r lasso2.rmse`.
+
+#### 3.5 Running a `pcr` model (Extra task)
+
+I am trying to improve the simple linear model by using PCA for dimensionality reduction. I am centering and scaling variables and using `pcr` to conduct a search for the optimal number of principal components.
+
+`pcr` is also a linear regression but with principal components as explanatory variables and its hyperparameter is the number of principal components to be used. Now I am doing a `pcr` with a 10-fold cross-validation with a sequence of hyperparameters 1 to 20.
+
+```{r echo=FALSE, warning=FALSE}
+tune_grid <- data.frame(ncomp = 5:25)
+set.seed(1234)
+pcr_fit <- train(price ~ ln_accommodates + ln_beds + f_property_type + f_room_type + ln_days_since + f_bathroom + f_cancellation_policy + f_bed_type + f_number_of_reviews + n_review_scores_rating + ln_accommodates2 + ln_days_since2 + ln_days_since3 + f_room_type*f_property_type + f_number_of_reviews*f_property_type + d_airconditioning*f_property_type + d_cats*f_property_type + d_dogs*f_property_type + d_hourcheckin + d_airconditioning + d_breakfast + d_buzzerwirelessintercom + d_cabletv + d_carbonmonoxidedetector + d_cats + d_dogs + d_doorman + d_doormanentry + d_dryer + d_elevatorinbuilding + d_essentials + d_familykidfriendly + d_fireextinguisher + d_firstaidkit + d_freeparkingonpremises +
+                   #d_freeparkingonstreet + 
+                   d_gym + d_hairdryer + d_hangers + d_heating + d_hottub + d_indoorfireplace + d_internet + d_iron + d_keypad + d_kitchen + d_laptopfriendlyworkspace + d_lockonbedroomdoor + d_lockbox + 
+                   #d_otherpets + 
+                   d_paidparkingoffpremises + d_petsallowed + d_petsliveonthisproperty + d_pool + d_privateentrance + d_privatelivingroom,
+                 #- f_neighbourhood_cleansed + d_freeparkingonstreet + d_otherpets + d_washerdryer + neighbourhood_cleansed + train, 
+                data = data_train, 
+                method = "pcr",
+                na.action  = na.pass,
+                trControl = trainControl(method = "cv", number = 10),
+                tuneGrid = tune_grid,
+                preProcess = c("center", "scale")
+                )
+pcr_fit
+```
+
+The results show that having the most principal components does not yield a model with the lowest RMSE. In this case having 19 principal components provided the lowest RMSE.
+
+#### 3.6 Evaluating `pcr` model on test set
+
+After running `pcr` on the test set this is the RMSE I got:
+
+```{r echo=FALSE}
+test_prediction <- predict.train(pcr_fit, 
+                                        newdata = data_test)
+RMSE <- function(x, true_x) sqrt(mean((x - true_x)^2))
+RMSE(test_prediction, data_test[["price"]])
+```
+
+### 4. Which model would you choose for your borough and which one for the London results?
+
+When choosing a model it is not enough to consider the results, interpretation is as much important. Considering both aspects, in case of London I would pick modellev2, because its results are close to other models and it does not have that much variables that would make the interpretation difficult. The same applies to the borough as well, I would pick aforementioned model again.
+
+I might want to use the same model for Budapest too, the variables I have used would most likely be valid variables in Budapest too, at least this is what I believe.
+
+### 5. Extra task for full London data set
+
+We need to compare two modelling options:
+
+#### 5.1 Extra task #1
+
+predicting prices with the same set of variables, estimated borough by borough:
+
+I have used the 4th model with Lasso for all the boroughs that have at least 1000 observations to predict ln_price, please find the results below:
+
+```{r}
+RMSE <- function(x, true_x) sqrt(mean((x - true_x)^2))
+i <- 0
+extra <- matrix(rep(NaN,10*1),nrow=10,ncol=1)
+colnames(extra) <- c("RMSE_Lasso")
+rownames(extra) <- c("Lambeth","Southwark","Wandsworth","Hammersmith and Fulham","Kensington and Chelsea","Westminster","Camden","Tower Hamlets","Islington","Hackney")
+
+for (borough in c("Lambeth","Southwark","Wandsworth","Hammersmith and Fulham","Kensington and Chelsea","Westminster","Camden","Tower Hamlets","Islington","Hackney") ) {
+  #data_name <- paste0("data_",borough)
+  data <- data_london[neighbourhood_cleansed == borough]
+  #paste0("data_",borough) <- data[neighbourhood_cleansed == borough]
+  smp_size <- floor(0.9 * nrow(data))
+
+# Set the random number generator: It will make results reproducable
+set.seed(20180122)
+
+# create ids: 
+# 1) seq_len: generate regular sequences
+# 2) sample: select random rows from a table
+train_ids <- sample(seq_len(nrow(data)), size = smp_size)
+
+# create a new variable for train/test sample
+data$train <- 0
+data$train[train_ids] <- 1
+# Create train and test sample variables
+data_train <- data[train==1,]
+data_test <- data[train==0,]
+
+
+
+## LASSO Model 1) for ln price:
+# Convert training data to matrix format, use the broadest data set
+formula <- formula(paste0("ln_price",modellog2))
+# Create matrix
+x <- model.matrix(formula,data)
+# Call of LASSO function
+# alpha = 1 gives lasso penalty
+# find the best lambda from our list via cross-validation
+lasso1 <- cv.glmnet( x , data[ ( match( rownames( x ) ,rownames( data ) ) ) , ln_price ], alpha = 1)
+# Optimal lambda parameter
+bestlam1 <- lasso1$lambda.min
+# Prediction
+lasso1.pred <- predict(lasso1, newx = x, s=bestlam1)
+# MSE value
+corr <- mse_lev(lasso1.pred,data[(match(rownames(x),rownames(data))),ln_price])
+
+i <- i+1
+extra[i,1] <- mse_log(lasso1.pred,data[(match(rownames(x),rownames(data))),ln_price],corr)**(1/2)
+
+
+#train_prediction <- predict.train(glmnet_model, 
+#                                       newdata = data_test)
+#extra[i,1] <-RMSE(train_prediction, data_train[["price"]])
+
+#test_prediction <- predict.train(glmnet_model, 
+#                                        newdata = data_test)
+#extra[i,1] <-RMSE(test_prediction, data_test[["price"]])
+}
+```
+
+```{r}
+extra
+```
+
+#### 5.2 Extra task #2
+Another task was to create a model using some interaction terms, I chose `f_neighbourhood_cleansed*f_property_type` and a few others, please find the results below:
+
+```{r}
+model <- lm(ln_price ~ n_accommodates + f_neighbourhood_cleansed*f_property_type +
+              d_cats*f_property_type +
+              d_dogs*f_property_type +
+              d_airconditioning*f_property_type,
+            data = data_train_london)
+prediction_train <- predict(model, newdata = data_train_london)
+prediction_test <- predict(model, newdata = data_test_london)
+
+extra_2 <- matrix(rep(NaN,2*1),nrow=2,ncol=1)
+colnames(extra_2) <- c("Model_interactions")
+rownames(extra_2) <- c("RMSE_train","RMSE_test")
+
+rmselog <- mse_lev(prediction_train, data_train_london[,mget(yvar)])**(1/2)
+#mse_train <- mse_log(prediction_train, data_train_london[,mget(yvar)],rmselog)
+extra_2[1]<- mse_log(prediction_train, data_train_london[,mget(yvar)],rmselog)**(1/2)
+#mse_test <- mse_log(prediction_test, data_test_london[,mget(yvar)],rmselog)
+extra_2[2] <- mse_log(prediction_test, data_test_london[,mget(yvar)],rmselog)**(1/2)
+
+extra_2
+```
