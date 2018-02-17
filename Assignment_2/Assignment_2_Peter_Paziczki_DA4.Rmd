@@ -307,10 +307,16 @@ data <- data[founded_year>=1986]
 data <- data[region != ""]
 
 ## Dropping companies with missing regions
-test <- data[!(age == 35)]
+data <- data[!(age == 35)]
 
 ## Dropping companies with missing industries
 data <- data[ind != ""]
+
+data <- data[complete.cases(data[,"size_cat"])]
+
+#data <- data[complete.cases(data[,c("ROE_2011", "ROE_2012", "ROE_2013", "ROE_2014", "ROE_2015")])]
+#data <- data[complete.cases(data[,c("profit_loss_2011", "profit_loss_2012","profit_loss_2013", "share_eq_2011", "share_eq_2012", "share_eq_2013")])]
+
 ```
 
 ```{r}
@@ -397,7 +403,7 @@ Y = "defaulted"
 m1 <- get(Y) ~ age 
 m2 <- get(Y) ~ agegroup + region
 #+ sales_change_12_13 + sales_change_13_14 + sales_change_14_15
-m3 <- get(Y) ~ age + region + f_ind
+m3 <- get(Y) ~ age + region + f_ind + size_cat
   #+ labor_change_11_12 + labor_change_12_13 + labor_change_13_14 + labor_change_14_15
 m4 <- get(Y) ~ agesq
 
@@ -453,7 +459,7 @@ cv_results
 ```{r}
 ####################################RANDOM FOREST
 
-mrf <- f_defaulted ~ age + f_region + agegroup + f_ind# + size_cat
+mrf <- f_defaulted ~ age + f_region + agegroup + f_ind + size_cat
 
 md <- randomForest(mrf, data = d_train, ntree = 200, mtry=3)
 print(md)
