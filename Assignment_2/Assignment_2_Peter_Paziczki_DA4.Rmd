@@ -27,6 +27,8 @@ library(ggplot2)
 library(tidyr)
 library(DescTools) # for BrierScore function
 library(pROC) # for roc function
+library(dplyr)
+library(randomForest)
 #library(lattice)
 #library(caret)
 #library(glmnet)
@@ -71,11 +73,11 @@ data[, sales_2015_is_NA := factor(ifelse(is.na(data[,sales_2015]), 1, 0))]
 
 ```{r}
 #data[,defaulted := factor(ifelse(sales_2014_is_NA == 1 & sales_2015_is_NA == 1, 1, 0))]
-data[,defaulted := factor(ifelse(sales_2014_is_NA == 1 & sales_2015_is_NA == 1 | 
+data[,defaulted := ifelse(sales_2014_is_NA == 1 & sales_2015_is_NA == 1 | 
                                         sales_2014 == 0 & sales_2015 == 0 | 
                                         sales_2014 == 0 & sales_2015_is_NA == 1 |
-                                        sales_2014_is_NA == 1 & sales_2015 == 0 , 1, 0))]
-
+                                        sales_2014_is_NA == 1 & sales_2015 == 0 , 1, 0)]
+data[,f_defaulted := factor(defaulted)]
 data <- data[!(sales_2011 == 0 & sales_2012 == 0 & sales_2013 == 0
                          #& sales_2014 == 0 & sales_2015 == 0
                          )]
@@ -127,7 +129,26 @@ data <- merge(data, data_founded_year, all = TRUE)
 data <- data[,age := 2015 - founded_year]
 ```
 
+```{r}
+## adding region
+#data_region <- bisnode_all[, c("comp_id", "region_m", "year")]
+#data_region <- spread(data_region, key = year, value = region_m)
+#names(data_founded_year) <- c("comp_id", "year_2011", "year_2012", "year_2013", "year_2014", "year_2015", "year_2016")
 
+data_region <- bisnode_all[, unique(region_m), by = comp_id]
+colnames(data_region) <- c("comp_id", "region")
+data_region <- data_region[comp_id %in% list_of_companies]
+data <- merge(data, data_region, all = TRUE)
+data[,f_region := factor(region)]
+## Dropping companies with missing 
+#data[comp_id == "425522272",region]
+data <- data[region != ""]
+#data <- data[region == ""]
+```
+
+```{r}
+data <- data[founded_year<=2013]
+```
 
 ```{r eval=FALSE}
 ######################CLEAN DATA
@@ -154,7 +175,7 @@ data[,f_income10g:=factor(income10g)]
 data[,f_deceased:=factor(deceased)]
 class(data$f_deceased)
 
-Y = "deceased"
+Y = "defaulted"
 ```
 
 ```{r}
@@ -184,7 +205,7 @@ cal10 <- data[,.(mean_y = mean(defaulted), mean_p = mean(p) ), by=pcat]
 
 #calibration for 10 groups of p, equal width
 data[,pcat:=cut(p, seq(0,1,0.02), right = F,include.lowest = T )]
-cal10_2 <- data[,.(mean_y = mean(deceased), mean_p = mean(p), min = min(p) , max = max(p), n=.N ), by=pcat]
+cal10_2 <- data[,.(mean_y = mean(defaulted), mean_p = mean(p), min = min(p) , max = max(p), n=.N ), by=pcat]
 
 ggplot(data = cal10, aes(x=mean_p, y=mean_y)) +
   geom_line(aes(x=mean_p,y=mean_p), size=1, colour="orange",  linetype=2 )+
@@ -204,12 +225,16 @@ data$p2 <- predict(logit2, data, type='response')
 
 BrierScore(logit)
 BrierScore(logit2)
+```
 
+```{r}
 #############################################################################
 # ROC CURVE
 
 roc(data$defaulted , data$p, plot=T)
+```
 
+```{r}
 #################################Separate a test set for final evaluation
 
 set.seed(2801)
@@ -227,15 +252,19 @@ data$train[train_ids] <- 1
 # Create train and test sample variables
 d_train <- data[train==1,]
 d_test <- data[train==0,]
+```
 
+```{r}
 #############################################################################
-
+Y = "defaulted"
 # FOUR MODELS
 
 m1 <- get(Y) ~ age 
-m2 <- get(Y) ~ smokes +ever_smoked + female + age + eduyears_mod + income10g
-m3 <- get(Y) ~ smokes*age + ever_smoked*age + female*age + f_eduyears_mod*age + f_income10g*age
-m4 <- get(Y) ~ smokes*agegi + ever_smoked*agegi + female*agegi + eduyears_mod*agegi + f_income10g*agegi
+m2 <- get(Y) ~ region
+  #+ region + sales_change_11_12 + sales_change_12_13 + sales_change_13_14 + sales_change_14_15
+m3 <- get(Y) ~ age + region
+  #+ labor_change_11_12 + labor_change_12_13 + labor_change_13_14 + labor_change_14_15
+m4 <- get(Y) ~ age
 
 ###########################################################################
 ## IN-SAMPLE
@@ -243,16 +272,20 @@ m4 <- get(Y) ~ smokes*agegi + ever_smoked*agegi + female*agegi + eduyears_mod*ag
 in_sample_brier <- list()
 in_sample_auc <- list()
 
+str(data)
+
 for (i in 1:4){
   name <- paste("logit",2+i,sep="")
-  logit <- glm(get(paste("m",i,sep='')), family = "binomial", data=d_train)
+  logit <- glm(get(paste("m",i,sep='')), family = "binomial", data=d_train, na.action=na.pass)
   d_train[, (paste('p',2+i, sep=''))] <- predict(logit, d_train, type='response')
   #print(summary(logit))
   in_sample_brier[[paste0("m",i)]] <- BrierScore(logit) 
   in_sample_auc[[paste0("m",i)]] <- roc(d_train[,get(Y)] , d_train[,get(paste('p',2+i, sep=''))] , plot=F)$auc
   assign(name,logit)
 }
+```
 
+```{r}
 ################################################################
 ## 5-FOLD CROSS-VALIDATION
 
@@ -282,10 +315,12 @@ for (i in 1:4){
 }
 
 cv_results
+```
 
+```{r}
 ####################################RANDOM FOREST
 
-mrf <- f_deceased ~ smokes + ever_smoked + female + age + eduyears_mod + income10g + agegi + f_eduyears_mod + f_income10g
+mrf <- f_defaulted ~ age + f_region
 
 md <- randomForest(mrf, data = d_train, ntree = 200, mtry=3)
 print(md)
@@ -294,10 +329,11 @@ varImpPlot(md, type = 2)
 
 # look at two conf matrix
 phat <- predict(md, data_test, type = "prob")[,"1"]
-table(ifelse(phat>0.05,1,0), data_test$f_deceased)
-table(ifelse(phat>0.10,1,0), data_test$f_deceased)
+table(ifelse(phat>0.05,1,0), data_test$f_defaulted)
+table(ifelse(phat>0.10,1,0), data_test$f_defaulted)
+```
 
-
+```{r}
 ################################################
 
 # for comparison, train-test logits
@@ -308,7 +344,7 @@ BrierScore(d_test[,get(Y)],p)
 plot.roc(d_test[,get(Y)] , p, print.auc = TRUE)
 
 model.test.prob <- predict(md, d_test, type = "prob",norm.votes = TRUE)
-plot.roc(predictor = model.test.prob[,2],  d_test$f_deceased, print.auc = TRUE)
+plot.roc(predictor = model.test.prob[,2],  d_test$f_defaulted, print.auc = TRUE)
 ```
 
 
