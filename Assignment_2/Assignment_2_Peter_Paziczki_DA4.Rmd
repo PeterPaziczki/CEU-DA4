@@ -3,8 +3,8 @@ title: "Homework assignment 2"
 author: "Peter Paziczki"
 date: "2018 February 18"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 subtitle: 'Data Analysis 4: Prediction Analytics with Introduction to Machine Learning
   2017/2018 Winter'
 ---
@@ -16,11 +16,11 @@ text-align: justify}
 
 ```{r setup, include=FALSE}
 rm(list=ls())
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, echo = FALSE)
-options(scipen=999) #disable scientific notation
+knitr::opts_chunk$set(warning = FALSE, echo = FALSE)
+options(scipen=999) # disabling scientific notation
 ```
 
-```{r echo=FALSE}
+```{r include=FALSE}
 # loading necessary 
 library(data.table)
 library(ggplot2)
@@ -34,25 +34,29 @@ library(randomForest)
 #library(glmnet)
 ```
 
-```{r}
-getwd()
-# Loading the data
+### 1. Predicting firm default
+
+We have been provided the bisnode_all.csv dataset containing more than 150.000 observations, covering financial data from 2011 to 2016, management related information and further information about employment and industrial classification. Our task is to define firm default and build models that can predict it.
+
+```{r include=FALSE}
+## Loading the bisnode data
 bisnode_all <- fread("bisnode_all.csv")
 ```
 
-```{r}
+```{r include=FALSE}
 ## Creating a table with unique company IDs and sales values from all years
 data_sales <- bisnode_all[, c("comp_id", "sales", "year")]
 data_sales <- spread(data_sales, key = year, value = sales)
-#is.data.table(data_sales)
 names(data_sales) <- c("comp_id", "sales_2011", "sales_2012", "sales_2013", "sales_2014", "sales_2015", "sales_2016")
-str(data_sales)
 
+## Dropping the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
 data_sales[,"sales_2016" := NULL]
+
+## Keeping companies that have no NA records in years 2011 to 2013
 data <- data_sales[complete.cases(data_sales[,c("sales_2011", "sales_2012", "sales_2013")]),]
 ```
 
-```{r}
+```{r include=FALSE}
 ## computing the percentage changes in sales from year to year
 data[, sales_change_11_12 := sales_2012/sales_2011]
 data[, sales_change_12_13 := sales_2013/sales_2012]
@@ -60,7 +64,7 @@ data[, sales_change_13_14 := sales_2014/sales_2013]
 data[, sales_change_14_15 := sales_2015/sales_2014]
 ```
 
-```{r}
+```{r include=FALSE}
 ## Creating binary variables
 
 #data[, sales_2011_is_NA := factor(ifelse(is.na(data[,sales_2011]), 1, 0))]
@@ -71,47 +75,64 @@ data[, sales_2015_is_NA := factor(ifelse(is.na(data[,sales_2015]), 1, 0))]
 #data[, sales_2016_is_NA := factor(ifelse(is.na(data[,sales_2016]), 1, 0))]
 ```
 
-```{r}
+#### 1.1 Defining firm default
+
+I am going to consider a firm defaulted if there are no records about its sales results in 2014 and 2015. Having no records means that it is either zero and / or missing. I could see many examples of missing sales records, but two missing records in row is enough for me to say that the company has defaulted.
+
+It also means that I cannot work with companies founded later than 2013. Companies that had zero as record of sales in all years from 2011 to 2013 have also been dropped, those are considered as inactive, irrelevant for our study.
+
+#### 1.2 Data preparation
+
+I have dropped the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+
+```{r include=FALSE}
+## Defining firm default
+
 #data[,defaulted := factor(ifelse(sales_2014_is_NA == 1 & sales_2015_is_NA == 1, 1, 0))]
 data[,defaulted := ifelse(sales_2014_is_NA == 1 & sales_2015_is_NA == 1 | 
                                         sales_2014 == 0 & sales_2015 == 0 | 
                                         sales_2014 == 0 & sales_2015_is_NA == 1 |
                                         sales_2014_is_NA == 1 & sales_2015 == 0 , 1, 0)]
-data[,f_defaulted := factor(defaulted)]
+data[,f_defaulted := factor(defaulted)] # random forest can operate with factor but cannot with characters
 data <- data[!(sales_2011 == 0 & sales_2012 == 0 & sales_2013 == 0
                          #& sales_2014 == 0 & sales_2015 == 0
                          )]
 
+## Creating a list of companies that we are going to include
 list_of_companies <- data[, unique(comp_id)]
 ```
 
+Sales seemed to be an interesting predictor, so I have computed the change in sales from year to year.
 
-```{r}
-## Creating a table with unique company IDs and sales values from all years
+```{r include=FALSE}
+## Creating a table with unique company IDs and labor values from all years
 data_labor_avg <- bisnode_all[, c("comp_id", "labor_avg", "year")]
 data_labor_avg <- spread(data_labor_avg, key = year, value = labor_avg)
 is.data.table(data_labor_avg)
 names(data_labor_avg) <- c("comp_id", "labor_2011", "labor_2012", "labor_2013", "labor_2014", "labor_2015", "labor_2016")
 str(data_labor_avg)
 
+## Including only the companies that were dropped previously
 data_labor_avg <- data_labor_avg[comp_id %in% list_of_companies]
 
-## computing the percentage changes in sales from year to year
+## Computing the percentage changes in sales from year to year
 data_labor_avg[, labor_change_11_12 := labor_2012/labor_2011]
 data_labor_avg[, labor_change_12_13 := labor_2013/labor_2012]
 data_labor_avg[, labor_change_13_14 := labor_2014/labor_2013]
 data_labor_avg[, labor_change_14_15 := labor_2015/labor_2014]
 
-#N <- ncol(data_labor_avg)
+data_labor_avg[,"labor_2016" := NULL]
 
+## Merging it to the bigger table
 data <- merge(data, data_labor_avg, all = TRUE)
 
-#data_labor_avg[,"labor_2016" := NULL]
 #data_labor_avg <- data_labor_avg[complete.cases(data_wide[,2:4]),]
 ```
 
-```{r}
-## adding age
+I am expecting company age to be an relevant predictor, I am assuming that the older a company, the more stable it is and the less likely it is to default.
+
+```{r include=FALSE}
+## Adding company age
 data_founded_year <- bisnode_all[, c("comp_id", "founded_year", "year")]
 data_founded_year <- spread(data_founded_year, key = year, value = founded_year)
 names(data_founded_year) <- c("comp_id", "year_2011", "year_2012", "year_2013", "year_2014", "year_2015", "year_2016")
@@ -127,10 +148,26 @@ data <- merge(data, data_founded_year, all = TRUE)
 #test <- cbind(test,data_founded_year[,"founded_year"])
 
 data <- data[,age := 2015 - founded_year]
+
+## creating 5 years age groups
+data[,agegroup:=cut(age, seq(0,35,5), right = F,include.lowest = T )]
+
+## creating 1 year long age groups
+data[,agegi:=cut(age, seq(0,35,1), right = F,include.lowest = T )]
+data[,agesq:=age^2]
 ```
 
+I have cut the observations into 5 years long age groups, please find a table below showing the number of observations in the different groups.
+
 ```{r}
-## adding region
+data[,.(min_age = min(age) , max_age = max(age), n=.N ), by=agegroup]
+str(data$age)
+```
+
+Region would be interesting predictor if it were relevant, I am going to investigate it.
+
+```{r include=FALSE}
+## Adding region
 #data_region <- bisnode_all[, c("comp_id", "region_m", "year")]
 #data_region <- spread(data_region, key = year, value = region_m)
 #names(data_founded_year) <- c("comp_id", "year_2011", "year_2012", "year_2013", "year_2014", "year_2015", "year_2016")
@@ -140,42 +177,140 @@ colnames(data_region) <- c("comp_id", "region")
 data_region <- data_region[comp_id %in% list_of_companies]
 data <- merge(data, data_region, all = TRUE)
 data[,f_region := factor(region)]
-## Dropping companies with missing 
-#data[comp_id == "425522272",region]
-data <- data[region != ""]
-#data <- data[region == ""]
 ```
 
-```{r}
+```{r include=FALSE}
+## Creating a table with unique company IDs and profit loss values from all years
+data_profit_loss_year <- bisnode_all[, c("comp_id", "profit_loss_year", "year")]
+data_profit_loss_year <- spread(data_profit_loss_year, key = year, value = profit_loss_year)
+names(data_profit_loss_year) <- c("comp_id", "profit_loss_2011", "profit_loss_2012", "profit_loss_2013", "profit_loss_2014", "profit_loss_2015", "profit_loss_2016")
+
+## Dropping the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+data_profit_loss_year[,"profit_loss_2016" := NULL]
+data_profit_loss_year <- data_profit_loss_year[comp_id %in% list_of_companies]
+
+##############################################################################
+
+## Creating a table with unique company IDs and shared equity values from all years
+data_share_eq <- bisnode_all[, c("comp_id", "share_eq", "year")]
+data_share_eq <- spread(data_share_eq, key = year, value = share_eq)
+names(data_share_eq) <- c("comp_id", "share_eq_2011", "share_eq_2012", "share_eq_2013", "share_eq_2014", "share_eq_2015", "share_eq_2016")
+
+## Dropping the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+data_share_eq[,"share_eq_2016" := NULL]
+data_share_eq <- data_share_eq[comp_id %in% list_of_companies]
+
+##############################################################################
+
+## Creating a table with unique company IDs and income before tax values from all years
+data_inc_bef_tax <- bisnode_all[, c("comp_id", "inc_bef_tax", "year")]
+data_inc_bef_tax <- spread(data_inc_bef_tax, key = year, value = inc_bef_tax)
+names(data_inc_bef_tax) <- c("comp_id", "income_bef_tax_2011", "income_bef_tax_2012", "income_bef_tax_2013", "income_bef_tax_2014", "income_bef_tax_2015", "income_bef_tax_2016")
+
+## Dropping the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+data_inc_bef_tax[,"income_bef_tax_2016" := NULL]
+data_inc_bef_tax <- data_inc_bef_tax[comp_id %in% list_of_companies]
+
+##############################################################################
+
+## Creating a table with unique company IDs and current assets values from all years
+data_curr_assets <- bisnode_all[, c("comp_id", "curr_assets", "year")]
+data_curr_assets <- spread(data_curr_assets, key = year, value = curr_assets)
+names(data_curr_assets) <- c("comp_id", "curr_assets_2011", "curr_assets_2012", "curr_assets_2013", "curr_assets_2014", "curr_assets_2015", "curr_assets_2016")
+
+## Dropping the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+data_curr_assets[,"curr_assets_2016" := NULL]
+data_curr_assets <- data_curr_assets[comp_id %in% list_of_companies]
+
+##############################################################################
+
+## Creating a table with unique company IDs and current assets values from all years
+data_fixed_assets <- bisnode_all[, c("comp_id", "fixed_assets", "year")]
+data_fixed_assets <- spread(data_fixed_assets, key = year, value = fixed_assets)
+names(data_fixed_assets) <- c("comp_id", "fixed_assets_2011", "fixed_assets_2012", "fixed_assets_2013", "fixed_assets_2014", "fixed_assets_2015", "fixed_assets_2016")
+
+## Dropping the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+data_fixed_assets[,"fixed_assets_2016" := NULL]
+data_fixed_assets <- data_fixed_assets[comp_id %in% list_of_companies]
+
+##############################################################################
+
+## Creating a table with unique company IDs and current assets values from all years
+data_curr_liab <- bisnode_all[, c("comp_id", "curr_liab", "year")]
+data_curr_liab <- spread(data_curr_liab, key = year, value = curr_liab)
+names(data_curr_liab) <- c("comp_id", "curr_liab_2011", "curr_liab_2012", "curr_liab_2013", "curr_liab_2014", "curr_liab_2015", "curr_liab_2016")
+
+## Dropping the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+data_curr_liab[,"curr_liab_2016" := NULL]
+data_curr_liab <- data_curr_liab[comp_id %in% list_of_companies]
+
+data <- merge(data, data_profit_loss_year, all = TRUE)
+data <- merge(data, data_share_eq, all = TRUE)
+data <- merge(data, data_inc_bef_tax, all = TRUE)
+data <- merge(data, data_curr_assets, all = TRUE)
+data <- merge(data, data_fixed_assets, all = TRUE)
+data <- merge(data, data_curr_liab, all = TRUE)
+```
+
+```{r include=FALSE}
+## ROE = Net_Income / Shareholders Equity
+data[, ROE_2011 := profit_loss_2011 / share_eq_2011]
+data[, ROE_2012 := profit_loss_2012 / share_eq_2012]
+data[, ROE_2013 := profit_loss_2013 / share_eq_2013]
+data[, ROE_2014 := profit_loss_2014 / share_eq_2014]
+data[, ROE_2015 := profit_loss_2015 / share_eq_2015]
+
+## ROCE - returnal on capital employed
+#bisnode[, ROCE := inc_bef_tax / (curr_assets + fixed_assets - curr_liab)] 
+
+data[, ROCE_2011 := income_bef_tax_2011 / (curr_assets_2011 + fixed_assets_2011 - curr_liab_2011)]
+data[, ROCE_2012 := income_bef_tax_2012 / (curr_assets_2012 + fixed_assets_2012 - curr_liab_2012)]
+data[, ROCE_2013 := income_bef_tax_2013 / (curr_assets_2013 + fixed_assets_2013 - curr_liab_2013)]
+data[, ROCE_2014 := income_bef_tax_2014 / (curr_assets_2014 + fixed_assets_2014 - curr_liab_2014)]
+data[, ROCE_2015 := income_bef_tax_2015 / (curr_assets_2015 + fixed_assets_2015 - curr_liab_2015)]
+```
+
+```{r include=FALSE}
+## Adding industry codes
+data_ind <- bisnode_all[, unique(ind), by = comp_id]
+colnames(data_ind) <- c("comp_id", "ind")
+data_ind <- data_ind[comp_id %in% list_of_companies]
+
+data <- merge(data, data_ind, all = TRUE)
+data[,f_ind := factor(ind)]
+
+## Adding industry codes
+data_ind2 <- bisnode_all[, unique(ind2), by = comp_id]
+colnames(data_ind2) <- c("comp_id", "ind2")
+data_ind2 <- data_ind2[comp_id %in% list_of_companies]
+data <- merge(data, data_ind2, all = TRUE)
+data[,f_ind2 := factor(ind2)]
+```
+
+```{r include=FALSE}
+data [, size_third := quantile ((curr_assets_2014 + fixed_assets_2014), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile ((curr_assets_2014 + fixed_assets_2014), 0.66, na.rm = TRUE), by = ind]
+data [, size_cat := cut (curr_assets_2014 + fixed_assets_2014, c(
+                            0, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+#data[,f_size_cat := factor(size_cat)]
+```
+
+```{r include=FALSE}
+## Dropping companies founded in 2014 or later, and companies founded before 1986
 data <- data[founded_year<=2013]
-```
+data <- data[founded_year>=1986]
 
-```{r eval=FALSE}
-######################CLEAN DATA
+## Dropping companies with missing regions
+data <- data[region != ""]
 
-data <- data[(age>=50) & (age<80)]
-data <- data[(!is.na(smokes)) & (!is.na(ever_smoked)) & (!is.na(deceased)) &
-               (!is.na(female)) & (!is.na(eduyears_mod)) & (!is.na(income10g)) ]  
+## Dropping companies with missing regions
+test <- data[!(age == 35)]
 
-## creating 5 yeats age groups
-data[,agegroup:=cut(age, seq(50,80,5), right = F,include.lowest = T )]
-## creating 1 year long age groups
-data[,agegi:=cut(age, seq(50,80,1), right = F,include.lowest = T )]
-data[,agesq:=age^2]
-data[,.(min_age = min(age) , max_age = max(age), n=.N ), by=agegroup]
-
-data[eduyears_mod==10.5,eduyears_mod:=10 ]
-data[eduyears_mod==17.5,eduyears_mod:=17 ]
-data <- data[eduyears_mod!=0]
-
-## making edu_years and income10g factors
-data[,f_eduyears_mod:=factor(eduyears_mod)]
-data[,f_income10g:=factor(income10g)]
-# for RF we will need as factor - this is what we are gonna predict
-data[,f_deceased:=factor(deceased)]
-class(data$f_deceased)
-
-Y = "defaulted"
+## Dropping companies with missing industries
+data <- data[ind != ""]
 ```
 
 ```{r}
@@ -260,19 +395,17 @@ Y = "defaulted"
 # FOUR MODELS
 
 m1 <- get(Y) ~ age 
-m2 <- get(Y) ~ region
-  #+ region + sales_change_11_12 + sales_change_12_13 + sales_change_13_14 + sales_change_14_15
-m3 <- get(Y) ~ age + region
+m2 <- get(Y) ~ agegroup + region
+#+ sales_change_12_13 + sales_change_13_14 + sales_change_14_15
+m3 <- get(Y) ~ age + region + f_ind
   #+ labor_change_11_12 + labor_change_12_13 + labor_change_13_14 + labor_change_14_15
-m4 <- get(Y) ~ age
+m4 <- get(Y) ~ agesq
 
 ###########################################################################
 ## IN-SAMPLE
 
 in_sample_brier <- list()
 in_sample_auc <- list()
-
-str(data)
 
 for (i in 1:4){
   name <- paste("logit",2+i,sep="")
@@ -320,7 +453,7 @@ cv_results
 ```{r}
 ####################################RANDOM FOREST
 
-mrf <- f_defaulted ~ age + f_region
+mrf <- f_defaulted ~ age + f_region + agegroup + f_ind# + size_cat
 
 md <- randomForest(mrf, data = d_train, ntree = 200, mtry=3)
 print(md)
@@ -347,6 +480,37 @@ model.test.prob <- predict(md, d_test, type = "prob",norm.votes = TRUE)
 plot.roc(predictor = model.test.prob[,2],  d_test$f_defaulted, print.auc = TRUE)
 ```
 
+
+
+
+
+```{r eval=FALSE}
+######################CLEAN DATA
+
+data <- data[(age>=50) & (age<80)]
+data <- data[(!is.na(smokes)) & (!is.na(ever_smoked)) & (!is.na(deceased)) &
+               (!is.na(female)) & (!is.na(eduyears_mod)) & (!is.na(income10g)) ]  
+
+## creating 5 yeats age groups
+data[,agegroup:=cut(age, seq(50,80,5), right = F,include.lowest = T )]
+## creating 1 year long age groups
+data[,agegi:=cut(age, seq(50,80,1), right = F,include.lowest = T )]
+data[,agesq:=age^2]
+data[,.(min_age = min(age) , max_age = max(age), n=.N ), by=agegroup]
+
+data[eduyears_mod==10.5,eduyears_mod:=10 ]
+data[eduyears_mod==17.5,eduyears_mod:=17 ]
+data <- data[eduyears_mod!=0]
+
+## making edu_years and income10g factors
+data[,f_eduyears_mod:=factor(eduyears_mod)]
+data[,f_income10g:=factor(income10g)]
+# for RF we will need as factor - this is what we are gonna predict
+data[,f_deceased:=factor(deceased)]
+class(data$f_deceased)
+
+Y = "defaulted"
+```
 
 ```{r eval=FALSE}
 # number of unique company IDs
