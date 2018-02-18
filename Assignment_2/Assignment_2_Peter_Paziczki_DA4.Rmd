@@ -155,6 +155,7 @@ data[,agegroup:=cut(age, seq(0,35,5), right = F,include.lowest = T )]
 ## creating 1 year long age groups
 data[,agegi:=cut(age, seq(0,35,1), right = F,include.lowest = T )]
 data[,agesq:=age^2]
+data[,agecu:=age^3]
 ```
 
 I have cut the observations into 5 years long age groups, please find a table below showing the number of observations in the different groups.
@@ -295,7 +296,74 @@ data [, size_cat := cut (curr_assets_2014 + fixed_assets_2014, c(
                             size_twothird [1], Inf),
                             labels = c("small", "medium", "big")),
                             by = ind]
-#data[,f_size_cat := factor(size_cat)]
+
+##########################################################################################
+
+data [, size_third := quantile (((income_bef_tax_2012 - income_bef_tax_2011)/income_bef_tax_2011), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (((income_bef_tax_2012 - income_bef_tax_2011)/income_bef_tax_2011), 0.66, na.rm = TRUE), by = ind]
+data [, income_cat_2012 := cut (((income_bef_tax_2012 - income_bef_tax_2011)/income_bef_tax_2011), c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+data [, size_third := quantile (((income_bef_tax_2013 - income_bef_tax_2012)/income_bef_tax_2012), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (((income_bef_tax_2013 - income_bef_tax_2012)/income_bef_tax_2012), 0.66, na.rm = TRUE), by = ind]
+data [, income_cat_2013 := cut (((income_bef_tax_2013 - income_bef_tax_2012)/income_bef_tax_2012), c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+data [, size_third := quantile (((income_bef_tax_2014 - income_bef_tax_2013)/income_bef_tax_2013), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (((income_bef_tax_2014 - income_bef_tax_2013)/income_bef_tax_2013), 0.66, na.rm = TRUE), by = ind]
+data [, income_cat_2014 := cut (((income_bef_tax_2014 - income_bef_tax_2013)/income_bef_tax_2013), c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+data [, size_third := quantile (((income_bef_tax_2015 - income_bef_tax_2014)/income_bef_tax_2014), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (((income_bef_tax_2015 - income_bef_tax_2014)/income_bef_tax_2014), 0.66, na.rm = TRUE), by = ind]
+data [, income_cat_2015 := cut (((income_bef_tax_2015 - income_bef_tax_2014)/income_bef_tax_2014), c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+##########################################################################################
+
+data [, size_third := quantile (((sales_2012 - sales_2011)/sales_2011), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (((sales_2012 - sales_2011)/sales_2011), 0.66, na.rm = TRUE), by = ind]
+data [, sales_cat_2012 := cut (((sales_2012 - sales_2011)/sales_2011), c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+data [, size_third := quantile (((sales_2013 - sales_2012)/sales_2012), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (((sales_2013 - sales_2012)/sales_2012), 0.66, na.rm = TRUE), by = ind]
+data [, sales_cat_2013 := cut (((sales_2013 - sales_2012)/sales_2012), c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+data [, size_third := quantile (((sales_2014 - sales_2013)/sales_2013), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (((sales_2014 - sales_2013)/sales_2013), 0.66, na.rm = TRUE), by = ind]
+data [, sales_cat_2014 := cut (((sales_2014 - sales_2013)/sales_2013), c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+data [, size_third := quantile (((sales_2015 - sales_2014)/sales_2014), 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (((sales_2015 - sales_2014)/sales_2014), 0.66, na.rm = TRUE), by = ind]
+data [, sales_cat_2015 := cut (((sales_2015 - sales_2014)/sales_2014), c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
 ```
 
 ```{r include=FALSE}
@@ -312,19 +380,30 @@ data <- data[!(age == 35)]
 ## Dropping companies with missing industries
 data <- data[ind != ""]
 
-data <- data[complete.cases(data[,"size_cat"])]
+## Dropping zero values to avoid having NAs
+data <- data[sales_2012 != 0]
+data <- data[income_bef_tax_2011 != 0]
+data <- data[income_bef_tax_2012 != 0]
 
+data <- data[complete.cases(data[,"size_cat"])]
+data <- data[complete.cases(data[,c("income_bef_tax_2011", "income_bef_tax_2012", "income_bef_tax_2013")])]
+data <- data[complete.cases(data[,c("sales_2011", "sales_2012", "sales_2013")])]
+data <- data[complete.cases(data[,c("share_eq_2011", "share_eq_2012", "share_eq_2013")])]
 #data <- data[complete.cases(data[,c("ROE_2011", "ROE_2012", "ROE_2013", "ROE_2014", "ROE_2015")])]
 #data <- data[complete.cases(data[,c("profit_loss_2011", "profit_loss_2012","profit_loss_2013", "share_eq_2011", "share_eq_2012", "share_eq_2013")])]
 
 ```
+
+#### 1.2 Calibration example with age
+
+I am running a logit linear regression to predict firm default with only one predictor, age.
 
 ```{r}
 #####################################################################
 # CALIBRATION EXAMPLE
 # AGE ONLY
 
-logit <- glm(defaulted ~ age, family = "binomial", data=data)
+logit <- glm(defaulted ~ poly(age, 3), family = "binomial", data=data)
 logit
 ## storing the probability predictions in variable p
 data$p <- predict(logit, data, type='response')
@@ -401,12 +480,13 @@ Y = "defaulted"
 # FOUR MODELS
 
 m1 <- get(Y) ~ age 
-m2 <- get(Y) ~ agegroup + region
-#+ sales_change_12_13 + sales_change_13_14 + sales_change_14_15
-m3 <- get(Y) ~ age + region + f_ind + size_cat
-  #+ labor_change_11_12 + labor_change_12_13 + labor_change_13_14 + labor_change_14_15
-m4 <- get(Y) ~ agesq
+m2 <- get(Y) ~ poly(age, 3)
+m3 <- get(Y) ~ poly(age, 3)
+m4 <- get(Y) ~ age + poly(age, 2) + poly(age, 3) + region + f_ind + size_cat + sales_cat_2012 + sales_cat_2013 + income_cat_2012 + income_cat_2013
 
+#table(d_train$sales_cat_2014)
+#table(d_train$income_cat_2015)
+#str(d_train)
 ###########################################################################
 ## IN-SAMPLE
 
@@ -422,6 +502,9 @@ for (i in 1:4){
   in_sample_auc[[paste0("m",i)]] <- roc(d_train[,get(Y)] , d_train[,get(paste('p',2+i, sep=''))] , plot=F)$auc
   assign(name,logit)
 }
+
+in_sample_brier
+in_sample_auc
 ```
 
 ```{r}
@@ -459,7 +542,7 @@ cv_results
 ```{r}
 ####################################RANDOM FOREST
 
-mrf <- f_defaulted ~ age + f_region + agegroup + f_ind + size_cat
+mrf <- f_defaulted ~ age + agesq + agecu + f_region + agegroup + f_ind + size_cat + sales_cat_2012 + sales_cat_2013 + income_cat_2012 + income_cat_2013
 
 md <- randomForest(mrf, data = d_train, ntree = 200, mtry=3)
 print(md)
@@ -477,7 +560,7 @@ table(ifelse(phat>0.10,1,0), data_test$f_defaulted)
 
 # for comparison, train-test logits
 
-logit_best <- glm(m2, family = "binomial", data=d_train)
+logit_best <- glm(m4, family = "binomial", data=d_train)
 p <- predict(logit_best, newdata=d_test , type='response')
 BrierScore(d_test[,get(Y)],p)
 plot.roc(d_test[,get(Y)] , p, print.auc = TRUE)
