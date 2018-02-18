@@ -3,8 +3,8 @@ title: "Homework assignment 2"
 author: "Peter Paziczki"
 date: "2018 February 18"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 subtitle: 'Data Analysis 4: Prediction Analytics with Introduction to Machine Learning
   2017/2018 Winter'
 ---
@@ -29,6 +29,7 @@ library(DescTools) # for BrierScore function
 library(pROC) # for roc function
 library(dplyr)
 library(randomForest)
+library(pander)
 #library(lattice)
 #library(caret)
 #library(glmnet)
@@ -77,13 +78,15 @@ data[, sales_2015_is_NA := factor(ifelse(is.na(data[,sales_2015]), 1, 0))]
 
 #### 1.1 Defining firm default
 
-I am going to consider a firm defaulted if there are no records about its sales results in 2014 and 2015. Having no records means that it is either zero and / or missing. I could see many examples of missing sales records, but two missing records in row is enough for me to say that the company has defaulted.
+I am going to consider a firm defaulted if there are no records about its sales results in 2014 and 2015. Having no records means that it is either zero and / or missing. I could see many examples of missing sales records of one year, but two missing records in row is enough for me to say that the company has defaulted.
 
-It also means that I cannot work with companies founded later than 2013. Companies that had zero as record of sales in all years from 2011 to 2013 have also been dropped, those are considered as inactive, irrelevant for our study.
+It also means that I cannot work with companies founded later than 2013. Companies that had zero as record of sales in all years from 2011 to 2013 have also been dropped, those are considered as inactive, irrelevant for our study. I have dropped the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+
+I created a binary flag called `defaulted`, 1 indicates that the company has defaulted.
 
 #### 1.2 Data preparation
 
-I have dropped the year 2016, because when the data was gathered, not all the the companies have submitted their financial records for 2016.
+I need to find and create relevant predictors to able to build a model with actual predicting power. Let
 
 ```{r include=FALSE}
 ## Defining firm default
@@ -102,7 +105,7 @@ data <- data[!(sales_2011 == 0 & sales_2012 == 0 & sales_2013 == 0
 list_of_companies <- data[, unique(comp_id)]
 ```
 
-Sales seemed to be an interesting predictor, so I have computed the change in sales from year to year.
+
 
 ```{r include=FALSE}
 ## Creating a table with unique company IDs and labor values from all years
@@ -157,15 +160,6 @@ data[,agegi:=cut(age, seq(0,35,1), right = F,include.lowest = T )]
 data[,agesq:=age^2]
 data[,agecu:=age^3]
 ```
-
-I have cut the observations into 5 years long age groups, please find a table below showing the number of observations in the different groups.
-
-```{r}
-data[,.(min_age = min(age) , max_age = max(age), n=.N ), by=agegroup]
-str(data$age)
-```
-
-Region would be interesting predictor if it were relevant, I am going to investigate it.
 
 ```{r include=FALSE}
 ## Adding region
@@ -260,6 +254,10 @@ data[, ROE_2012 := profit_loss_2012 / share_eq_2012]
 data[, ROE_2013 := profit_loss_2013 / share_eq_2013]
 data[, ROE_2014 := profit_loss_2014 / share_eq_2014]
 data[, ROE_2015 := profit_loss_2015 / share_eq_2015]
+
+#library(mltools)
+#data[, "ROE_group_2011"] <- bin_data(data$ROE_2011, bins=5, binType = "quantile")
+#data[,ROE_group_2011_test:=cut(ROE_group_2011, 5, labels=c(1:5), right = F)]
 
 ## ROCE - returnal on capital employed
 #bisnode[, ROCE := inc_bef_tax / (curr_assets + fixed_assets - curr_liab)] 
@@ -364,6 +362,32 @@ data [, sales_cat_2015 := cut (((sales_2015 - sales_2014)/sales_2014), c(
                             size_twothird [1], Inf),
                             labels = c("small", "medium", "big")),
                             by = ind]
+
+##########################################################################################
+
+data [, size_third := quantile (profit_loss_2011 / share_eq_2011, 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (profit_loss_2011 / share_eq_2011, 0.66, na.rm = TRUE), by = ind]
+data [, ROE_2011_cat := cut (profit_loss_2011 / share_eq_2011, c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+data [, size_third := quantile (profit_loss_2012 / share_eq_2012, 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (profit_loss_2012 / share_eq_2012, 0.66, na.rm = TRUE), by = ind]
+data [, ROE_2012_cat := cut (profit_loss_2012 / share_eq_2012, c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
+
+data [, size_third := quantile (profit_loss_2013 / share_eq_2013, 0.33, na.rm = TRUE), by = ind]
+data [, size_twothird := quantile (profit_loss_2013 / share_eq_2013, 0.66, na.rm = TRUE), by = ind]
+data [, ROE_2013_cat := cut (profit_loss_2013 / share_eq_2013, c(
+                            -Inf, size_third [1],
+                            size_twothird [1], Inf),
+                            labels = c("small", "medium", "big")),
+                            by = ind]
 ```
 
 ```{r include=FALSE}
@@ -381,29 +405,91 @@ data <- data[!(age == 35)]
 data <- data[ind != ""]
 
 ## Dropping zero values to avoid having NAs
+data <- data[sales_2011 != 0]
 data <- data[sales_2012 != 0]
+#data <- data[sales_2013 != 0]
 data <- data[income_bef_tax_2011 != 0]
 data <- data[income_bef_tax_2012 != 0]
+data <- data[share_eq_2011 != 0]
+data <- data[share_eq_2012 != 0]
+data <- data[share_eq_2013 != 0]
+data <- data[profit_loss_2011 != 0]
+data <- data[profit_loss_2012 != 0]
+data <- data[profit_loss_2013 != 0]
 
 data <- data[complete.cases(data[,"size_cat"])]
 data <- data[complete.cases(data[,c("income_bef_tax_2011", "income_bef_tax_2012", "income_bef_tax_2013")])]
 data <- data[complete.cases(data[,c("sales_2011", "sales_2012", "sales_2013")])]
 data <- data[complete.cases(data[,c("share_eq_2011", "share_eq_2012", "share_eq_2013")])]
 #data <- data[complete.cases(data[,c("ROE_2011", "ROE_2012", "ROE_2013", "ROE_2014", "ROE_2015")])]
-#data <- data[complete.cases(data[,c("profit_loss_2011", "profit_loss_2012","profit_loss_2013", "share_eq_2011", "share_eq_2012", "share_eq_2013")])]
-
+data <- data[complete.cases(data[,c("profit_loss_2011", "profit_loss_2012","profit_loss_2013")])]
 ```
 
-#### 1.2 Calibration example with age
+**Sales**
 
-I am running a logit linear regression to predict firm default with only one predictor, age.
+Sales plays an important role in our study, so I have computed sales growth for 2011 to 2012 and for 2012 to 2013. The equation was *Current Period Net Sales - Prior Period Net Sales) / Prior Period Net Sales*. Previously I have dropped all the observations that would have NA in sales records in any of the years from 2011 to 2013, but to make sure that that sales growth wouldn't be NA, I have to avoid having zero in the denominator, therefore I have dropped the observations that has zero in sales records for year 2011 and 2012. After calculating sales growth I grouped the sales growth into three categories (by industries) and used that for modelling. It proved to be one of the most performing predictors (see variable importance plot).
+
+**Age**
+
+I am expecting age to be an important predictor. I have computed it using the year the firm was founded in and substracted it from 2015. In addition to that I have cut the observations into 5 years long age groups, please find a table below showing the number of observations in the different groups.
+
+```{r}
+pander(data[,.(min_age = min(age) , max_age = max(age), n=.N ), by=agegroup])
+```
+
+Later there will be more about finding the best functional form of age variable, but in short, a quadratic from described it the best.
+
+**Region**
+
+Region sounded to be an interesting potential predictor, so I have included that too. Please find a table below showing the regions available and the number of companies in them.
+
+```{r}
+pander(data[,.N, by = region])
+```
+
+It turned out to be one of the least important predcitors. I had assumption that region could have an effect on firm default, but it is far less relevant than I thought it would be.
+
+**Income before tax**
+
+Similar to sales growth, I also investigated the yearly change in `inc_bef_tax` variable from year 2011 to 2013 and grouped the results into three groups (by industries). It turned out to be an improtant predictor.
+
+**Size**
+
+I defined a way to group the companies by their size. I chose a year and added the `curr_assets` and `fixed_assets` variables and based on the results I have grouped them into three different size groups (by industries). It also turned out to be one of most important predictors (see variable importance plot).
+
+**Firm default**
+
+After the data preparation I am checking, how many companies have been flagged as *defaulted*:
+
+```{r}
+pander(table(data$defaulted))
+```
+
+I am still checking the number of defaulted companies but by industry (`ind` variable) and age groups (`agegroup` variable).
+
+```{r}
+data[,.N, by = list(defaulted,ind)]
+data[,.N, by = list(defaulted,agegroup)]
+```
+
+Approximately 7% of the firm have been labelled to be defaulted.
+
+**ROE**
+
+I created one additional measure of company performance,Return on Equity (ROE). ROE is by far the most widespread simple tool to measure the net earnings ratio of a company or an investment. The reason I chose ROE is that it is easy to handle and to calculate, I have all the data needed to calculate it, and it is proven to be a good indicator of companies’ profitability. I need just two variables, the Net income (`profit_loss_year`) and Shareholder’s Equity (`share_eq` variable) to do the calculation. Calculating ROE for a given year is a “static” value and I calculated it for years 2011 to 2013.
+
+I grouped the values into three groups (by industries), as I did previously.
+
+#### 1.2 Benchmark model
+
+As a benchmark model I am starting with a logit model with one single predictor, square of age.
 
 ```{r}
 #####################################################################
 # CALIBRATION EXAMPLE
 # AGE ONLY
 
-logit <- glm(defaulted ~ poly(age, 3), family = "binomial", data=data)
+logit <- glm(defaulted ~ poly(age, 2), family = "binomial", data=data)
 logit
 ## storing the probability predictions in variable p
 data$p <- predict(logit, data, type='response')
@@ -411,11 +497,15 @@ data$p <- predict(logit, data, type='response')
 ggplot(data = data, aes(x=age , y=p)) +
   geom_line(size=1, colour="darkgreen", linetype=2 ) +
   geom_smooth(aes(x=age , y=defaulted), method="loess", colour="orange", se=F)+
-  ylab("Probability of dying within six years") +
+  xlab("Firm age") +
+  ylab("Probability of company defaulting in 2015") +
   theme_bw()
 #ggsave("logit_lpoly_age.png")
+```
 
+Please find a calibraton curve below:
 
+```{r}
 # calibration for all specific values
 data[,.(mean = mean(defaulted)), by=p>0.5]
 
@@ -436,28 +526,41 @@ ggplot(data = cal10, aes(x=mean_p, y=mean_y)) +
 #ggsave("calibration.png")
 ```
 
+**Brier score**
+
+Let's see the Brier score of the benchmark model. The Brier score is a way to measure the accuracy of the prediction. It is the mean squared difference of predicted probability and the actual outcome.
+
 ```{r}
 ##############################################################################
 # BRIER SCORES
 
-logit2 <- glm(defaulted ~ 1, family = "binomial", data=data)
-data$p2 <- predict(logit2, data, type='response')
+#logit2 <- glm(defaulted ~ 1, family = "binomial", data=data)
+#data$p2 <- predict(logit2, data, type='response')
 
 BrierScore(logit)
-BrierScore(logit2)
+#BrierScore(logit2)
 ```
+
+**ROC curve**
+
+The ROC curve shows the true positive rate for a given false positive rate. There is also a line on the plot with a slope of 1, it shows the case when the are under the ROC curve is 0.5, that is the case when the prediction is not better than a random guess. The point is to cover the highest possible AUC (area under the ROC curve).
 
 ```{r}
 #############################################################################
 # ROC CURVE
-
 roc(data$defaulted , data$p, plot=T)
 ```
 
-```{r}
+In case of the benchmark model the ROC curve is not far from the 45 degree line, the prediction has to be improved.
+
+#### 1.3 Creating training and test set
+
+I am creating training and test data sets to train and validate the models. The training set 80% of the whole data, randomly chosen. The other 20% goes to the test set.
+
+```{r include=FALSE}
 #################################Separate a test set for final evaluation
 
-set.seed(2801)
+set.seed(20180218)
 # create test and train samples (80% of observations in train sample)
 smp_size <- floor(0.8 * nrow(data))
 
@@ -474,19 +577,40 @@ d_train <- data[train==1,]
 d_test <- data[train==0,]
 ```
 
+### 2. Building models
+
+#### 2.1 Building logit models
+
 ```{r}
 #############################################################################
 Y = "defaulted"
 # FOUR MODELS
 
-m1 <- get(Y) ~ age 
-m2 <- get(Y) ~ poly(age, 3)
-m3 <- get(Y) ~ poly(age, 3)
-m4 <- get(Y) ~ age + poly(age, 2) + poly(age, 3) + region + f_ind + size_cat + sales_cat_2012 + sales_cat_2013 + income_cat_2012 + income_cat_2013
+m1 <- get(Y) ~ age
+m2 <- get(Y) ~ poly(age, 2) + region + f_ind
+m3 <- get(Y) ~ poly(age, 2) + region + f_ind + size_cat + ROE_2011_cat + ROE_2012_cat + ROE_2013_cat
+m4 <- get(Y) ~ age + poly(age, 2) + poly(age, 3) + region + f_ind + size_cat + sales_cat_2012 + sales_cat_2013 + income_cat_2012 + income_cat_2013 + ROE_2011_cat + ROE_2012_cat + ROE_2013_cat
 
 #table(d_train$sales_cat_2014)
 #table(d_train$income_cat_2015)
 #str(d_train)
+```
+
+I am building four different logit models, first is the most simple one and the last is the most complex one. I am expecting the last to perform the best, we will see that a bit later. Logit is a regression model that has the property of yielding results between zero and one, which is its advantage over linear regressions. These are the models:
+
+m1 ~ age
+
+m2 ~ poly(age, 2) + region + f_ind
+
+m3 ~ poly(age, 2) + region + f_ind + size_cat + ROE_2011_cat + ROE_2012_cat + ROE_2013_cat
+
+m4 ~ age + poly(age, 2) + poly(age, 3) + region + f_ind + size_cat + sales_cat_2012 + sales_cat_2013 + income_cat_2012 + income_cat_2013 + ROE_2011_cat + ROE_2012_cat + ROE_2013_cat
+
+#### 2.2 Running logit models in-sample
+
+First I am running the models without cross-validation on the training set. Please find the results (Brier score and AUC) of the four models in the following table:
+
+```{r}
 ###########################################################################
 ## IN-SAMPLE
 
@@ -503,9 +627,15 @@ for (i in 1:4){
   assign(name,logit)
 }
 
-in_sample_brier
-in_sample_auc
+in_sample <- cbind(in_sample_brier, in_sample_auc)
+in_sample
 ```
+
+The most complex model yielded the highest AUC and the best Brier score.
+
+#### 2.3 Running logit models with 5-fold cross-validation
+
+Now let's run the same four models on the training set but now with cross-validation.
 
 ```{r}
 ################################################################
@@ -539,21 +669,44 @@ for (i in 1:4){
 cv_results
 ```
 
+The results are similar in a sense that more complex models provided better results.
+
+### 3 Using machine learning - Random Forest
+
+Random forest is a machine learning method, growing many regression trees, 200 in our case. It uses the training sample to create many similar but slightly different samples with the use of bootstrapping. After creating 200 trees it averages out the results and yield one final tree. This procedure turned out to reduce overfitting successfully. In addition to that I am using another setting, three is set as the number of variables tried at each split.
+
+I used the following variables for the prediction:
+
+age + agesq + agecu + f_region + agegroup + f_ind + size_cat + sales_cat_2012 + sales_cat_2013 + income_cat_2012 + income_cat_2013 + ROE_2011_cat + ROE_2012_cat + ROE_2013_cat
+
+The model yielded the following confusion martix:
+
 ```{r}
 ####################################RANDOM FOREST
-
-mrf <- f_defaulted ~ age + agesq + agecu + f_region + agegroup + f_ind + size_cat + sales_cat_2012 + sales_cat_2013 + income_cat_2012 + income_cat_2013
-
+mrf <- f_defaulted ~ age + agesq + agecu + f_region + agegroup + f_ind + size_cat + sales_cat_2012 + sales_cat_2013 + income_cat_2012 + income_cat_2013 + ROE_2011_cat + ROE_2012_cat + ROE_2013_cat
+#?randomForest
 md <- randomForest(mrf, data = d_train, ntree = 200, mtry=3)
 print(md)
+```
+
+Please find a variable importance plot below. It captures the contribution of different variables to predicting power, the variable importance is plotted in a descending order. `agegroup` seems to contribute the less.
+
+```{r}
 varImpPlot(md, type = 2)
+```
 
+After training the random forest, let's try it on test set with different threshold, please find two confusion matrices below. I was trying out different thresholds, 0.05 and 0.10 respectively. The second is better in a sense that the number of false negative are much less.
 
+```{r}
 # look at two conf matrix
 phat <- predict(md, data_test, type = "prob")[,"1"]
 table(ifelse(phat>0.05,1,0), data_test$f_defaulted)
 table(ifelse(phat>0.10,1,0), data_test$f_defaulted)
 ```
+
+#### 4. Comparing results
+
+Now I am going to compare the performance of the best logit model and the random forest forest method on the test set. The Brier score of the logit model is the following. It is lower 
 
 ```{r}
 ################################################
@@ -563,111 +716,18 @@ table(ifelse(phat>0.10,1,0), data_test$f_defaulted)
 logit_best <- glm(m4, family = "binomial", data=d_train)
 p <- predict(logit_best, newdata=d_test , type='response')
 BrierScore(d_test[,get(Y)],p)
-plot.roc(d_test[,get(Y)] , p, print.auc = TRUE)
+```
 
+The logit model has the provided the following ROC curve. It seems to provide a high AUC value.
+
+```{r}
+plot.roc(d_test[,get(Y)] , p, print.auc = TRUE)
+```
+
+The random forest gave the following ROC curve. Compared to logit model it provided a lower AUC value.
+
+```{r}
 model.test.prob <- predict(md, d_test, type = "prob",norm.votes = TRUE)
 plot.roc(predictor = model.test.prob[,2],  d_test$f_defaulted, print.auc = TRUE)
 ```
 
-
-
-
-
-```{r eval=FALSE}
-######################CLEAN DATA
-
-data <- data[(age>=50) & (age<80)]
-data <- data[(!is.na(smokes)) & (!is.na(ever_smoked)) & (!is.na(deceased)) &
-               (!is.na(female)) & (!is.na(eduyears_mod)) & (!is.na(income10g)) ]  
-
-## creating 5 yeats age groups
-data[,agegroup:=cut(age, seq(50,80,5), right = F,include.lowest = T )]
-## creating 1 year long age groups
-data[,agegi:=cut(age, seq(50,80,1), right = F,include.lowest = T )]
-data[,agesq:=age^2]
-data[,.(min_age = min(age) , max_age = max(age), n=.N ), by=agegroup]
-
-data[eduyears_mod==10.5,eduyears_mod:=10 ]
-data[eduyears_mod==17.5,eduyears_mod:=17 ]
-data <- data[eduyears_mod!=0]
-
-## making edu_years and income10g factors
-data[,f_eduyears_mod:=factor(eduyears_mod)]
-data[,f_income10g:=factor(income10g)]
-# for RF we will need as factor - this is what we are gonna predict
-data[,f_deceased:=factor(deceased)]
-class(data$f_deceased)
-
-Y = "defaulted"
-```
-
-```{r eval=FALSE}
-# number of unique company IDs
-data[, comp_id := factor(comp_id)]
-# number of unique company IDs
-data[, year := factor(year)]
-N_comp_id <- data[, length(unique(comp_id))]
-N_year <- data[, length(unique(year))]
-list_of_companies <- data[, unique(comp_id)]
-list_of_years <- data[, unique(year)]
-
-data_comp <- matrix(rep(NaN,N_comp_id*N_year),nrow=N_comp_id,ncol=N_year)
-rownames(data_comp) <- list_of_companies
-colnames(data_comp) <- c("sales_2011", "sales_2012", "sales_2013", "sales_2014", "sales_2015", "sales_2016")
-
-i <- 1
-j <- 1
-
-for ( comp in list_of_companies ){
-  for ( year_in_column in c("2011", "2012", "2013", "2014", "2015", "2016") ){
-    if (length(data[comp_id == comp & year == year_in_column, sales]) == 0){
-      j <- j + 1
-    } else {
-    data_comp[i,j] <- data[comp_id == comp & year == year_in_column, sales]
-    j <- j + 1
-    }
-  }
-  i <- i + 1
-  j <- 1
-  }
-
-## It is a bad idea doing this way as it takes too long to aggregate the data
-#fwrite(data_comp,"data_comp.csv")
-
-#data_comp[i,j] <- data[comp_id == 1004012, sales]
-#c("2011", "2012", "2013", "2014", "2015", "2016")
-
-
-#data_comp[1,1] <- data[comp_id == comp & year == 2010, sales]
-#length(data[comp_id == comp & year == 2010, sales])
-#length(data[comp_id == comp & year == year, sales])
-```
-
-```{r eval=FALSE}
-#data_wide_cleaned <- data_wide[(!is.na("sales_2011")) & (!is.na("sales_2012")) & (!is.na("sales_2013")) & (!is.na("sales_2014")) & (!is.na("sales_2015"))]
-#data_wide_cleaned <- data_wide[(!is.na(2011)) & (!is.na(2012)) & (!is.na(2013))& (!is.na(2014))& (!is.na(2015))& (!is.na(2016))]
-#data_wide_cleaned <- data_wide[(!is.na(2)) & (!is.na(3)) & (!is.na(4))& (!is.na(5))& (!is.na(6))& (!is.na(7))]
-#data_wide_cleaned <- data_wide[(!is.na("2011")) && (!is.na("2012")) && (!is.na("2013")) && (!is.na("2014")) && (!is.na("2015")) && (!is.na("2016"))]
-#data_wide_cleaned <- data_wide[(!is.na("2011")) & (!is.na("2012")) & (!is.na("2013")) & (!is.na("2014")) & (!is.na("2015")) & (!is.na("2016"))]
-#data_wide_cleaned <- data_wide[(is.na("2011")) & (is.na("2012")) & (is.na("2013")) & (is.na("2014")) & (is.na("2015")) & (is.na("2016"))]
-#data_wide_cleaned <- data_wide[complete.cases(data_wide[,2:5]),]
-
-#data_wide_cleaned_2 <- data_wide_cleaned["sales_2011" != 0 & "sales_2012" != 0 & "sales_2013" != 0 & "sales_2014" != 0 & "sales_2015" != 0]
-
-#data_wide[, defaulted := factor(levels = c("Yes", "No"))]
-data_wide[, defaulted := ifelse(is.na(7), 1, 0)]
-data_wide_cleaned[1,7]
-is.na(data_wide_cleaned[3,7])
-data_wide[1:3, default_binary := factor(ifelse(is.na(7), 1, 0))]
-
-is.na(data_wide[1,2])
-is.na(data_wide[1,7])
-
-data_wide[, sales_2011 := as.integer(sales_2011)]
-data_wide[, sales_2016 := as.integer(sales_2016)]
-str(data_wide)
-
-
-data_wide[, sales_2011_is_NA := factor(ifelse(is.na(data_wide[,2]), 1, 0))]
-data_wide[, sales_2016_is_NA := factor(ifelse(is.na(data_wide[,7]), 1, 0))]
-```
